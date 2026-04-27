@@ -277,42 +277,6 @@ Xây dựng model dự đoán XGBoost cơ bản
 
 ---
 
-# Gợi Ý Chia Công Việc
-
-## Thành viên 1
-
-```txt
-crawler + database
-```
-
----
-
-## Thành viên 2
-
-```txt
-backend API
-```
-
----
-
-## Thành viên 3
-
-```txt
-ML + prediction
-```
-
----
-
-# Thứ Tự Phát Triển Đề Xuất
-
-```txt
-1. thu thập dữ liệu
-2. làm sạch dữ liệu
-3. phân tích dữ liệu
-4. xây dựng model cơ bản
-5. cải thiện model
-```
-
 ---
 
 # Workflow Làm Việc Hằng Ngày
