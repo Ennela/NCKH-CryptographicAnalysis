@@ -7,7 +7,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     UniqueConstraint,
-    Index
+    Index,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
@@ -37,16 +37,29 @@ class SpotKline(Base):
 
     number_of_trades: Mapped[int] = mapped_column(Integer, nullable=False)
 
-    taker_buy_base_asset_volume: Mapped[float] = mapped_column(Numeric(38, 18), nullable=False)
-    taker_buy_quote_asset_volume: Mapped[float] = mapped_column(Numeric(38, 18), nullable=False)
+    taker_buy_base_asset_volume: Mapped[float] = mapped_column(
+        Numeric(38, 18), nullable=False
+    )
+    taker_buy_quote_asset_volume: Mapped[float] = mapped_column(
+        Numeric(38, 18), nullable=False
+    )
 
     ignore_value: Mapped[str] = mapped_column(String(50), nullable=True)
 
-    created_at: Mapped[str] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[str] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
 
     __table_args__ = (
-        UniqueConstraint("symbol", "interval", "open_time", name="uq_spot_klines_symbol_interval_open_time"),
-        Index("idx_spot_klines_symbol_interval_time", "symbol", "interval", "open_time"),
+        UniqueConstraint(
+            "symbol",
+            "interval",
+            "open_time",
+            name="uq_spot_klines_symbol_interval_open_time",
+        ),
+        Index(
+            "idx_spot_klines_symbol_interval_time", "symbol", "interval", "open_time"
+        ),
     )
 
 
@@ -69,10 +82,14 @@ class AggTrade(Base):
     is_buyer_maker: Mapped[bool] = mapped_column(Boolean, nullable=False)
     is_best_match: Mapped[bool] = mapped_column(Boolean, nullable=True)
 
-    created_at: Mapped[str] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[str] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
 
     __table_args__ = (
-        UniqueConstraint("symbol", "agg_trade_id", name="uq_agg_trades_symbol_agg_trade_id"),
+        UniqueConstraint(
+            "symbol", "agg_trade_id", name="uq_agg_trades_symbol_agg_trade_id"
+        ),
         Index("idx_agg_trades_symbol_time", "symbol", "trade_time"),
     )
 
@@ -85,7 +102,9 @@ class OrderBookSnapshot(Base):
     symbol: Mapped[str] = mapped_column(String(30), nullable=False)
     last_update_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
-    collected_at: Mapped[str] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    collected_at: Mapped[str] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
 
     levels = relationship("OrderBookLevel", back_populates="snapshot")
 
@@ -95,7 +114,9 @@ class OrderBookLevel(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
 
-    snapshot_id: Mapped[int] = mapped_column(ForeignKey("order_book_snapshots.id"), nullable=False)
+    snapshot_id: Mapped[int] = mapped_column(
+        ForeignKey("order_book_snapshots.id"), nullable=False
+    )
 
     side: Mapped[str] = mapped_column(String(10), nullable=False)  # bid / ask
     price: Mapped[float] = mapped_column(Numeric(38, 18), nullable=False)
@@ -118,8 +139,8 @@ class RawBinanceData(Base):
     params: Mapped[dict] = mapped_column(JSONB, nullable=True)
     payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
 
-    collected_at: Mapped[str] = mapped_column(DateTime(timezone=True), server_default=func.now())
-
-    __table_args__ = (
-        Index("idx_raw_binance_endpoint", "endpoint"),
+    collected_at: Mapped[str] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
     )
+
+    __table_args__ = (Index("idx_raw_binance_endpoint", "endpoint"),)
