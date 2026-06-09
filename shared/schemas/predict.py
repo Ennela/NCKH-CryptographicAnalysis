@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import List
 from pydantic import BaseModel, Field, field_validator
 
+
 class PredictRequest(BaseModel):
     ticker_id: str = Field(..., description="Mã tài sản, ví dụ: FPT hoặc BTC/USDT")
     model_name: str = Field(..., description="Tên mô hình: arima, xgboost, lstm, gru")
@@ -16,9 +17,11 @@ class PredictRequest(BaseModel):
             raise ValueError(f"Model name must be one of {allowed}")
         return name
 
+
 class PredictionItem(BaseModel):
     target_time: datetime
     predicted_value: float
+
 
 class PredictResponse(BaseModel):
     ticker_id: str
@@ -29,10 +32,12 @@ class PredictResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
 class ModelMetrics(BaseModel):
     mae: float
     rmse: float
     mape: float
+
 
 class ModelInfoResponse(BaseModel):
     model_name: str

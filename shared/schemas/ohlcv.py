@@ -1,6 +1,7 @@
 from datetime import datetime
 from pydantic import BaseModel, Field, field_validator
 
+
 class OHLCVBase(BaseModel):
     timestamp: datetime
     ticker_id: str = Field(..., description="Ticker ID, e.g. FPT, BTC/USDT")
@@ -24,8 +25,10 @@ class OHLCVBase(BaseModel):
             raise ValueError("Resolution must be '1h' or '1d'")
         return val
 
+
 class OHLCVCreate(OHLCVBase):
     pass
+
 
 class OHLCVResponse(OHLCVBase):
     class Config:
