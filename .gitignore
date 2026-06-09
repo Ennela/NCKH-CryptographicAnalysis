@@ -49,6 +49,7 @@ data/processed/
 
 # Node / Frontend
 node_modules/
+frontend/.env.local
 .next/
 out/
 .next-env.d.ts
