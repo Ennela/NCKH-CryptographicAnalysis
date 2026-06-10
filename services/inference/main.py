@@ -11,7 +11,7 @@ from shared.utils.logging import setup_logging
 from shared.utils.timezone import now_utc, to_utc
 from shared.config.settings import settings
 from shared.db.session import get_db
-from shared.db.models import Prediction, OHLCVPrice
+# Note: hypertable tables (market.ohlcv, ml.prediction) use raw SQL, not ORM models
 from shared.schemas.predict import (
     PredictRequest,
     PredictResponse,
@@ -121,15 +121,18 @@ def predict_price(payload: PredictRequest, db: Session = Depends(get_db)):
     )
 
     # Determine step duration (1 hour for crypto 1h, 1 day for stock 1d)
-    # Fetching the asset type first from DB
-    ticker_query = text("SELECT asset_type FROM public.tickers WHERE id = :ticker_id")
-    ticker_res = db.execute(ticker_query, {"ticker_id": payload.ticker_id}).first()
+    # Fetching the asset type from market.symbol by ticker name
+    ticker_query = text(
+        "SELECT id, asset_class FROM market.symbol WHERE ticker = :ticker"
+    )
+    ticker_res = db.execute(ticker_query, {"ticker": payload.ticker_id}).first()
     if not ticker_res:
         raise HTTPException(
             status_code=404, detail=f"Ticker '{payload.ticker_id}' not found."
         )
 
-    asset_type = ticker_res[0]
+    symbol_id = ticker_res[0]
+    asset_type = ticker_res[1]
     # Set step interval
     step_delta = timedelta(days=1)
     resolution = "1d"
@@ -137,18 +140,17 @@ def predict_price(payload: PredictRequest, db: Session = Depends(get_db)):
         step_delta = timedelta(hours=1)
         resolution = "1h"
 
-    # Get latest close price as prediction start reference point
-    latest_price = (
-        db.query(OHLCVPrice)
-        .filter(
-            OHLCVPrice.ticker_id == payload.ticker_id,
-            OHLCVPrice.resolution == resolution,
-        )
-        .order_by(OHLCVPrice.timestamp.desc())
-        .first()
+    # Get latest close price from market.ohlcv hypertable (raw SQL)
+    latest_query = text(
+        "SELECT close FROM market.ohlcv "
+        "WHERE symbol_id = :symbol_id AND timeframe = :timeframe "
+        "ORDER BY ts DESC LIMIT 1"
     )
+    latest_row = db.execute(
+        latest_query, {"symbol_id": symbol_id, "timeframe": resolution}
+    ).first()
 
-    if not latest_price:
+    if not latest_row:
         raise HTTPException(
             status_code=400,
             detail=f"No historical price records found for ticker {payload.ticker_id} (res={resolution}). Can't forecast.",
@@ -172,7 +174,7 @@ def predict_price(payload: PredictRequest, db: Session = Depends(get_db)):
     prediction_time = now_utc()
     predictions = []
 
-    current_val = float(latest_price.close)
+    current_val = float(latest_row[0])
     for i in range(1, payload.steps + 1):
         target_time = prediction_time + (step_delta * i)
 
@@ -194,22 +196,14 @@ def predict_price(payload: PredictRequest, db: Session = Depends(get_db)):
             PredictionItem(target_time=to_utc(target_time), predicted_value=current_val)
         )
 
-    # 5. Save predictions to public.predictions in DB (for MLOps metrics comparison later)
-    for item in predictions:
-        pred_record = Prediction(
-            ticker_id=payload.ticker_id,
-            model_name=payload.model_name,
-            prediction_time=prediction_time,
-            target_time=item.target_time,
-            predicted_value=item.predicted_value,
-        )
-        db.add(pred_record)
-
-    try:
-        db.commit()
-    except Exception as e:
-        logger.error(f"Failed storing predictions in database: {str(e)}")
-        db.rollback()
+    # 5. Log predictions (skipping DB write for now — ml.prediction requires
+    #    model_version_id + horizon which aren't available in demo mode)
+    logger.info(
+        "Generated %d predictions for %s using %s",
+        len(predictions),
+        payload.ticker_id,
+        payload.model_name,
+    )
 
     # 6. Format Response
     response = PredictResponse(
