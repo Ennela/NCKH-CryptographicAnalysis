@@ -6,11 +6,13 @@ from shared.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
+
 class RedisCache:
     """
-    Sử dụng Redis để cache kết quả dự đoán của mô hình, tránh việc tính toán 
+    Sử dụng Redis để cache kết quả dự đoán của mô hình, tránh việc tính toán
     hoặc truy xuất MLflow liên tục cho cùng một mã tài sản trong một phiên giao dịch.
     """
+
     def __init__(self):
         try:
             self.client = redis.from_url(settings.REDIS_URL, decode_responses=True)
@@ -42,6 +44,7 @@ class RedisCache:
         except Exception as e:
             logger.error(f"Redis set error: {str(e)}")
             return False
+
 
 # Singleton instance
 redis_cache = RedisCache()
