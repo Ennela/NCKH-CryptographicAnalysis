@@ -455,3 +455,31 @@ Nếu dữ liệu đã tồn tại, chương trình sẽ không lưu trùng nên
 - Không nên bật `AUTO_SYMBOL_MODE=ALL` ngay từ đầu.
 - Nên test với ít coin trước, sau đó tăng dần `AUTO_SYMBOL_LIMIT`.
 - Dữ liệu đang lưu vào PostgreSQL, không phải file CSV trong thư mục project.
+
+chạy dự án
+py -m venv venv
+.\venv\Scripts\Activate.ps1
+py -m uvicorn app.main:app --no-access-log
+
+clear database
+TRUNCATE TABLE spot_klines RESTART IDENTITY CASCADE;
+
+check all
+SELECT 
+    symbol,
+    interval,
+    to_timestamp(open_time / 1000) AS thoi_gian_mo_nen,
+    to_timestamp(close_time / 1000) AS thoi_gian_dong_nen,
+    open_price,
+    high_price,
+    low_price,
+    close_price,
+    volume,
+    quote_asset_volume,
+    number_of_trades,
+    taker_buy_base_asset_volume,
+    taker_buy_quote_asset_volume
+FROM spot_klines
+ORDER BY open_time DESC;
+
+muốn giới hạn thì thêm limit vào cuối
