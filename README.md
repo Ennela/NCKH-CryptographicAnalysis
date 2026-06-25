@@ -47,83 +47,11 @@ stock-crypto-forecast/
 ├─ Makefile                       # Công cụ chạy nhanh các lệnh dev/build/test/migrate
 └─ README.md                      # Hướng dẫn này
 ```
-
----
-
-## Hướng Dẫn Cài Đặt & Chạy Hệ Thống
-
-### 1. Chuẩn bị môi trường
-Yêu cầu máy cài sẵn **Docker** và **Docker Compose**.
-Nếu muốn dev local không qua Docker, yêu cầu **Python 3.11** và **Node.js 18+**.
-
-### 2. Thiết lập cấu hình môi trường
-Tạo file `.env` từ file mẫu:
-```bash
-cp .env.example .env
-```
-Mở file `.env` ra và cập nhật các thông số cần thiết như thông tin kết nối DB, API Keys, v.v.
-
-### 3. Khởi động môi trường Development bằng Docker Compose
-Tất cả các dịch vụ (PostgreSQL + TimescaleDB, Redis, MLflow, Ingestion, Training, Inference, Frontend) sẽ được khởi tạo tự động:
-```bash
-make dev-up
-```
 Hệ thống sẽ chạy ở các cổng mặc định:
 *   **FastAPI Inference (API chính)**: [http://localhost:8000](http://localhost:8000)
 *   **Next.js Frontend**: [http://localhost:3000](http://localhost:3000)
 *   **MLflow Tracking UI**: [http://localhost:5000](http://localhost:5000)
 *   **FastAPI Ingestion (Health check)**: [http://localhost:8001](http://localhost:8001)
-
-Để dừng tất cả các dịch vụ và làm sạch volume:
-```bash
-make dev-down
-```
-
-### 4. Khởi động bản Production (Bao gồm Nginx Reverse Proxy)
-```bash
-make prod-up
-```
-
----
-
-## Quy Trình Phát Triển & Kiểm Thử
-
-### Kiểm tra code định dạng (Linter & Formatter)
-Hệ thống sử dụng **Ruff** để duy trì chất lượng code sạch:
-```bash
-# Check lỗi lint
-make lint
-
-# Tự động sửa định dạng code
-make format
-```
-
-### Chạy Unit Test
-```bash
-make test
-```
-
-### Chạy Seed dữ liệu ảo & Backfill lịch sử
-Để đưa nhanh dữ liệu mẫu vào DB phục vụ phát triển frontend & backend:
-```bash
-# Tạo các mã chứng khoán/crypto mẫu và nến giá giả định
-make seed
-
-# Thu thập dữ liệu lịch sử thực tế (Ví dụ BTC/USDT trong 30 ngày)
-make backfill
-```
-
----
-
-## Phân Chia Vai Trò Nhóm (5 Sinh Viên)
-
-Để đảm bảo hiệu quả làm việc theo Agile, các thành viên được phân vai trò rõ ràng:
-
-1.  **Dev 1 (Team Leader & MLOps)**: Phụ trách cấu hình Docker, CI/CD, MLflow Tracking/Registry, hạ tầng PostgreSQL/TimescaleDB và deployment.
-2.  **Dev 2 (Data Engineer)**: Phát triển dịch vụ `ingestion`, viết crawler `vnstock` + `ccxt/binance`, lập lịch Celery beat và kiểm soát chất lượng dữ liệu đầu vào.
-3.  **Dev 3 (ML/DL Developer - Baselines & Classic)**: Nghiên cứu các mô hình thống kê (ARIMA), mô hình Machine Learning cổ điển (XGBoost), tối ưu hóa Hyperparameters (Optuna) và tính năng giải thích mô hình SHAP.
-4.  **Dev 4 (DL Developer - Deep Learning)**: Phát triển và tối ưu hóa các kiến trúc mạng nơ-ron chuỗi thời gian bằng PyTorch (LSTM, GRU), xử lý Data Loader và Time-series Split.
-5.  **Dev 5 (Frontend Developer)**: Phát triển ứng dụng Web bằng Next.js, tích hợp thư viện vẽ biểu đồ ECharts (nến giá + đường dự báo tương lai), hiển thị biểu đồ lực lượng SHAP.
 
 ---
 
