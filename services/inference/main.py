@@ -1,8 +1,9 @@
 import logging
 import redis
 from datetime import timedelta
-from typing import List
-from fastapi import FastAPI, Depends, Header, HTTPException, Request, status
+from typing import List, Optional
+from fastapi import FastAPI, Depends, Header, HTTPException, Query, Request, status
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
@@ -34,6 +35,15 @@ app = FastAPI(
     version="1.0.0",
     docs_url="/docs",
     openapi_url="/openapi.json",
+)
+
+# CORS — cho phép frontend dev server kết nối
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # ==============================================================================
@@ -256,4 +266,96 @@ def get_active_models(db: Session = Depends(get_db)):
             metrics=ModelMetrics(mae=85.50, rmse=105.10, mape=0.012),
             last_updated=now - timedelta(hours=6),
         ),
+    ]
+
+
+@app.get(
+    "/api/v1/symbols",
+    dependencies=[Depends(verify_api_key)],
+)
+def list_symbols(db: Session = Depends(get_db)):
+    """
+    Lấy danh sách tất cả mã tài sản đang hoạt động từ market.symbol.
+    Returns: list of {ticker, asset_class, exchange_code, company_name}.
+    """
+    query = text(
+        "SELECT s.ticker, s.asset_class::text, e.code AS exchange_code, "
+        "       s.company_name "
+        "FROM market.symbol s "
+        "JOIN market.exchange e ON e.id = s.exchange_id "
+        "WHERE s.status = 'active' "
+        "ORDER BY s.asset_class, s.ticker"
+    )
+    rows = db.execute(query).fetchall()
+    return [
+        {
+            "ticker": row[0],
+            "asset_class": row[1],
+            "exchange_code": row[2],
+            "company_name": row[3],
+        }
+        for row in rows
+    ]
+
+
+@app.get(
+    "/api/v1/ohlcv",
+    dependencies=[Depends(verify_api_key)],
+)
+def get_ohlcv_history(
+    ticker: str = Query(..., description="Mã tài sản, VD: FPT, BTCUSDT"),
+    timeframe: str = Query("1d", description="Khung thời gian: 1h, 1d"),
+    limit: int = Query(100, ge=1, le=500, description="Số nến tối đa trả về"),
+    db: Session = Depends(get_db),
+):
+    """
+    Truy vấn dữ liệu OHLCV lịch sử từ market.ohlcv cho một mã tài sản.
+    Input: ticker (str), timeframe (str), limit (int).
+    Output: list of {ts, open, high, low, close, volume}.
+    """
+    # Validate timeframe
+    allowed_tf = ("1m", "5m", "15m", "1h", "4h", "1d", "1w")
+    timeframe = timeframe.strip().lower()
+    if timeframe not in allowed_tf:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid timeframe '{timeframe}'. Must be one of {allowed_tf}",
+        )
+
+    # Lookup symbol_id
+    ticker_clean = ticker.strip().upper()
+    sym_query = text(
+        "SELECT id FROM market.symbol WHERE ticker = :ticker AND status = 'active'"
+    )
+    sym_row = db.execute(sym_query, {"ticker": ticker_clean}).first()
+    if not sym_row:
+        raise HTTPException(
+            status_code=404, detail=f"Ticker '{ticker_clean}' not found."
+        )
+    symbol_id = sym_row[0]
+
+    # Query OHLCV data
+    ohlcv_query = text(
+        "SELECT ts, open, high, low, close, volume "
+        "FROM market.ohlcv "
+        "WHERE symbol_id = :symbol_id AND timeframe = :timeframe "
+        "ORDER BY ts DESC "
+        "LIMIT :limit"
+    )
+    rows = db.execute(
+        ohlcv_query,
+        {"symbol_id": symbol_id, "timeframe": timeframe, "limit": limit},
+    ).fetchall()
+
+    # Return newest-first, frontend can reverse if needed
+    return [
+        {
+            "ts": row[0].isoformat(),
+            "open": float(row[1]),
+            "high": float(row[2]),
+            "low": float(row[3]),
+            "close": float(row[4]),
+            "volume": float(row[5]),
+        }
+        for row in rows
     ]
