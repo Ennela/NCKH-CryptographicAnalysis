@@ -6,13 +6,16 @@ import pandas as pd
 # Financial Indicators & Feature Engineering
 # ==============================================================================
 
+
 def calculate_returns(prices: pd.Series) -> pd.Series:
     """Calculates simple returns: (p_t - p_{t-1}) / p_{t-1}"""
     return prices.pct_change()
 
+
 def calculate_volatility(returns: pd.Series, window: int = 14) -> pd.Series:
     """Calculates rolling volatility: standard deviation of returns over a window."""
     return returns.rolling(window=window).std()
+
 
 def calculate_rsi(prices: pd.Series, period: int = 14) -> pd.Series:
     """
@@ -30,7 +33,10 @@ def calculate_rsi(prices: pd.Series, period: int = 14) -> pd.Series:
     rsi = 100 - (100 / (1 + rs))
     return rsi
 
-def calculate_macd(prices: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9) -> tuple[pd.Series, pd.Series]:
+
+def calculate_macd(
+    prices: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9
+) -> tuple[pd.Series, pd.Series]:
     """
     Calculates Moving Average Convergence Divergence (MACD) and signal line.
     Returns: (macd_line, signal_line)
@@ -46,15 +52,24 @@ def calculate_macd(prices: pd.Series, fast: int = 12, slow: int = 26, signal: in
 # Machine Learning Model Evaluation Metrics
 # ==============================================================================
 
-def mean_absolute_error(y_true: Union[np.ndarray, List[float]], y_pred: Union[np.ndarray, List[float]]) -> float:
+
+def mean_absolute_error(
+    y_true: Union[np.ndarray, List[float]], y_pred: Union[np.ndarray, List[float]]
+) -> float:
     """Computes Mean Absolute Error (MAE)."""
     return float(np.mean(np.abs(np.array(y_true) - np.array(y_pred))))
 
-def root_mean_squared_error(y_true: Union[np.ndarray, List[float]], y_pred: Union[np.ndarray, List[float]]) -> float:
+
+def root_mean_squared_error(
+    y_true: Union[np.ndarray, List[float]], y_pred: Union[np.ndarray, List[float]]
+) -> float:
     """Computes Root Mean Squared Error (RMSE)."""
     return float(np.sqrt(np.mean(np.square(np.array(y_true) - np.array(y_pred)))))
 
-def mean_absolute_percentage_error(y_true: Union[np.ndarray, List[float]], y_pred: Union[np.ndarray, List[float]]) -> float:
+
+def mean_absolute_percentage_error(
+    y_true: Union[np.ndarray, List[float]], y_pred: Union[np.ndarray, List[float]]
+) -> float:
     """
     Computes Mean Absolute Percentage Error (MAPE).
     Handles potential divide-by-zero occurrences using a small epsilon.

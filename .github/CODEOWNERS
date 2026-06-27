@@ -1,0 +1,29 @@
+# ==============================================================================
+# GitHub Code Owners Configuration
+# ==============================================================================
+
+# Global fallback owners
+* @tv1-lead-data
+
+# Lead / Data Eng (TV1)
+/services/ingestion/  @tv1-lead-data
+/shared/db/           @tv1-lead-data
+/infra/               @tv1-lead-data
+/docker-compose*.yml  @tv1-lead-data
+
+# Machine Learning / Modeling (TV2)
+/services/training/            @tv2-modeling
+/services/training/app/models/ @tv2-modeling
+
+# Feature / Inference (TV3)
+/services/inference/             @tv3-feature-inference
+/services/training/app/features/ @tv3-feature-inference
+
+# Frontend (TV4)
+/frontend/ @tv4-frontend
+
+# QA / Docs (TV5)
+/tests/ @tv5-qa-docs
+/docs/  @tv5-qa-docs
+/README.md @tv5-qa-docs
+/AGENTS.md @tv5-qa-docs

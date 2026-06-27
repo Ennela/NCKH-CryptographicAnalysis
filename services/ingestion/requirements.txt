@@ -7,4 +7,5 @@ ccxt>=4.0.0
 vnstock>=2.0.0
 pandas>=2.0.0
 numpy>=1.24.0
--e ../../shared
+# shared is installed separately (see Dockerfile or `pip install -e ./shared` from repo root)
+httpx>=0.24.0

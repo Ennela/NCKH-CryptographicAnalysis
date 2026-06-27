@@ -14,7 +14,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d stock_crypto_db"]
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d stock_crypto_db" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -27,7 +27,7 @@ services:
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -41,7 +41,7 @@ services:
     volumes:
       - mlflow_data:/mlflow
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:5000/health || exit 1"]
+      test: [ "CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5000/health')\" || exit 1" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -51,10 +51,12 @@ services:
       context: .
       dockerfile: services/ingestion/Dockerfile
     container_name: forecast_ingestion
+    working_dir: /app/services/ingestion
     volumes:
       - .:/app
     environment:
       - ENV=development
+      - PYTHONPATH=/app
       - DATABASE_URL=postgresql+psycopg2://postgres:postgres_secure_pass_123@postgres:5432/stock_crypto_db
       - REDIS_URL=redis://redis:6379/0
       - REDIS_HOST=redis
@@ -72,10 +74,12 @@ services:
       context: .
       dockerfile: services/training/Dockerfile
     container_name: forecast_training
+    working_dir: /app/services/training
     volumes:
       - .:/app
     environment:
       - ENV=development
+      - PYTHONPATH=/app
       - DATABASE_URL=postgresql+psycopg2://postgres:postgres_secure_pass_123@postgres:5432/stock_crypto_db
       - MLFLOW_TRACKING_URI=http://mlflow:5000
     depends_on:
@@ -89,10 +93,12 @@ services:
       context: .
       dockerfile: services/inference/Dockerfile
     container_name: forecast_inference
+    working_dir: /app/services/inference
     volumes:
       - .:/app
     environment:
       - ENV=development
+      - PYTHONPATH=/app
       - DATABASE_URL=postgresql+psycopg2://postgres:postgres_secure_pass_123@postgres:5432/stock_crypto_db
       - REDIS_URL=redis://redis:6379/0
       - REDIS_HOST=redis

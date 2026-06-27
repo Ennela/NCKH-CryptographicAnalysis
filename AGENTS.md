@@ -1,4 +1,4 @@
-# RULES.md — Quy tắc làm việc & dùng AI Agent cho dự án
+# AGENTS.md — Hướng dẫn sử dụng AI Agent cho dự án
 
 > Mọi thành viên VÀ mọi AI agent (Cursor/Claude/Copilot...) PHẢI đọc và tuân thủ file này
 > trước khi viết bất kỳ dòng code nào. Nếu một yêu cầu mâu thuẫn với file này, DỪNG LẠI và hỏi.
@@ -110,3 +110,35 @@ Sửa code ngoài thư mục mình sở hữu → phải mở PR và tag ngườ
 
 > Nguyên tắc cuối: AI là TRỢ LÝ, không phải người chịu trách nhiệm. Người mở PR chịu trách nhiệm
 > cho từng dòng code trong đó — kể cả dòng do AI viết.
+
+---
+
+## 12. Ngoại lệ tạm thời (có thời hạn)
+
+### 12.1 Sync engine trong shared/db/session.py
+- **Trạng thái:** Tạm chấp nhận — cần gỡ bỏ khi hoàn tất refactor ingestion.
+- **Lý do:** `api/binance_fastapi/app/binance_client.py` và
+  `api/vnstock_fastapi/app/vnstock_client.py` chạy DB operations trong background
+  threads (sync). Chuyển sang async đòi hỏi refactor toàn bộ ingestion pipeline
+  (thay `threading.Thread` bằng `asyncio.create_task`, thay `SessionLocal()` bằng
+  `async with AsyncSessionLocal()`, …) — vượt scope task hiện tại.
+- **Phạm vi ngoại lệ:** `shared/db/session.py` cung cấp **cả** `create_async_engine`
+  (CHÍNH) **và** `create_engine` (COMPAT). Code mới **BẮT BUỘC** dùng async.
+  Chỉ code legacy ingestion client được dùng sync.
+- **Điều kiện gỡ bỏ:**
+  1. Refactor `binance_client.py` và `vnstock_client.py` sang async (dùng
+     `asyncio` thay `threading`, gọi `AsyncSessionLocal`).
+  2. Đổi 2 API service sang ghi dữ liệu vào `market.ohlcv_raw` / `market.ohlcv`
+     (thống nhất schema) thay vì bảng "lạ" riêng.
+  3. Xoá `sync_engine`, `SyncSessionLocal`, `get_db()`, alias `engine`/`SessionLocal`
+     khỏi `shared/db/session.py`.
+  4. Xoá `psycopg2-binary` khỏi `shared/pyproject.toml` (Alembic có thể chuyển sang
+     `psycopg[binary]` v3 async nếu cần).
+- **Người chịu trách nhiệm:** TV1 (Data/Lead).
+- **Deadline dự kiến:** Sprint sau khi hoàn tất task "trỏ ingestion vào market.ohlcv".
+
+### 12.2 Gộp api/* (collector cũ) vào services/ingestion
+- **Trạng thái:** Kế hoạch thực hiện (sau khi hoàn tất refactor DB).
+- **Lý do:** Code thu thập dữ liệu (collector) hiện nằm rải rác tại các thư mục `api/binance_fastapi` và `api/vnstock_fastapi`. Cần gom toàn bộ logic này vào `services/ingestion` làm dịch vụ cào dữ liệu tập trung duy nhất để đơn giản hóa vận hành và cấu trúc repo.
+- **Người chịu trách nhiệm:** TV1 (Data/Lead) + TV3 (Feature/Inference).
+- **Deadline dự kiến:** Sprint sau khi ổn định TimescaleDB và hoàn thành tích hợp async session.
