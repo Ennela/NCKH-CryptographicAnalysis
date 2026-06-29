@@ -1,0 +1,46 @@
+Bước 1: Cài đặt môi trườngMở PowerShell và di chuyển vào thư mục dự án:  
+PowerShellcd 
+E:\binance_fastapi
+
+Tạo môi trường ảo (bạn sẽ thấy thư mục .venv xuất hiện như trong image_099cfe.png):  
+PowerShell
+py -m venv .venv
+
+Cấp quyền chạy script cho PowerShell trong phiên làm việc hiện tại:  
+PowerShell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+
+Kích hoạt môi trường ảo:  
+PowerShell
+.\.venv\Scripts\Activate.ps1
+
+Cài đặt các thư viện cần thiết từ file requirements.txt:  
+PowerShell
+pip install -r requirements.txt
+
+Bước 2: Cấu hình Cơ sở dữ liệu (PostgreSQL)Trong PostgreSQL của bạn, hãy tạo một database có tên là binance_db.  
+Tạo file .env ở thư mục gốc của dự án (trong image_099cfe.png file này đã được tạo sẵn) và dán nội dung cấu hình sau vào:  
+Đoạn mã
+
+DATABASE_URL=postgresql+psycopg://postgres:MAT_KHAU_POSTGRES@localhost:5432/binance_db
+
+AUTO_COLLECT_ON_STARTUP=true
+
+AUTO_START_DATE=2024-01-01T00:00:00
+AUTO_END_DATE=
+
+AUTO_SYMBOL_MODE=USDT
+AUTO_SYMBOL_LIMIT=5
+
+AUTO_INTERVALS=1m,5m,15m,1h
+AUTO_CHUNK=month
+
+AUTO_SLEEP_SECONDS=0.2
+AUTO_SAVE_RAW=false
+AUTO_REPEAT_MINUTES=0
+
+Lưu ý: Bạn nhớ thay chữ MAT_KHAU_POSTGRES trong biến DATABASE_URL thành mật khẩu thật trong PostgreSQL của bạn nhé.  
+Bước 3: Khởi chạy ServerKhi đã cài môi trường và thiết lập database xong, bạn sử dụng lệnh sau trong terminal để 
+khởi động ứng dụng FastAPI:  
+
+PowerShellpython -m uvicorn app.main:app --no-access-log

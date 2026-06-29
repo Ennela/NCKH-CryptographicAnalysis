@@ -1,4 +1,11 @@
-from sqlalchemy import String, Numeric, DateTime, Date, UniqueConstraint, Index
+from sqlalchemy import (
+    String,
+    Numeric,
+    DateTime,
+    Date,
+    UniqueConstraint,
+    Index
+)
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import JSONB
@@ -14,9 +21,7 @@ class StockOhlcv(Base):
     symbol: Mapped[str] = mapped_column(String(20), nullable=False)
     interval: Mapped[str] = mapped_column(String(10), nullable=False)
 
-    candle_time: Mapped[object] = mapped_column(
-        DateTime(timezone=False), nullable=False
-    )
+    candle_time: Mapped[object] = mapped_column(DateTime(timezone=False), nullable=False)
 
     open_price: Mapped[object] = mapped_column(Numeric(20, 4), nullable=True)
     high_price: Mapped[object] = mapped_column(Numeric(20, 4), nullable=True)
@@ -28,7 +33,8 @@ class StockOhlcv(Base):
     raw_data: Mapped[dict] = mapped_column(JSONB, nullable=True)
 
     created_at: Mapped[object] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        DateTime(timezone=True),
+        server_default=func.now()
     )
 
     __table_args__ = (
@@ -36,14 +42,16 @@ class StockOhlcv(Base):
             "symbol",
             "interval",
             "candle_time",
-            name="uq_stock_ohlcv_symbol_interval_time",
+            name="uq_stock_ohlcv_symbol_interval_time"
         ),
         Index(
-            "idx_stock_ohlcv_symbol_interval_time", "symbol", "interval", "candle_time"
+            "idx_stock_ohlcv_symbol_interval_time",
+            "symbol",
+            "interval",
+            "candle_time"
         ),
     )
-
-
+    
 class StockRawData(Base):
     __tablename__ = "stock_raw_data"
 
@@ -57,7 +65,8 @@ class StockRawData(Base):
 
     collected_date: Mapped[object] = mapped_column(Date, nullable=False)
     created_at: Mapped[object] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        DateTime(timezone=True),
+        server_default=func.now()
     )
 
     __table_args__ = (
@@ -66,7 +75,11 @@ class StockRawData(Base):
             "data_type",
             "period",
             "collected_date",
-            name="uq_stock_raw_data_symbol_type_period_date",
+            name="uq_stock_raw_data_symbol_type_period_date"
         ),
-        Index("idx_stock_raw_data_symbol_type", "symbol", "data_type"),
+        Index(
+            "idx_stock_raw_data_symbol_type",
+            "symbol",
+            "data_type"
+        ),
     )
