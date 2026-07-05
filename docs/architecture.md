@@ -133,3 +133,20 @@ Lưu trữ lịch sử dự đoán của mô hình để đánh giá hiệu năn
     *   Client gửi request POST `/predict` kèm `ticker_id` và `model_name`.
     *   Dịch vụ Inference kiểm tra cache Redis. Nếu có sẵn và chưa hết hạn, trả về ngay lập tức.
     *   Nếu cache-miss, `ModelLoader` tải model từ `MLflow Model Registry`, thực hiện dự đoán, ghi kết quả dự đoán vào Redis và Postgres, sau đó phản hồi Client.
+
+---
+
+## 4. Cấu Hình Lịch Chạy Định Kỳ (Celery Beat Scheduler)
+
+Quy trình thu thập dữ liệu (`ingest`) và làm sạch dữ liệu (`clean`) được cấu hình tự động thông qua **Celery Beat**:
+1.  **Lịch chạy Ingestion (Thu thập)**: Được cấu hình cố định trong [celery_app.py](file:///d:/sources/repos/NCKH/services/ingestion/celery_app.py).
+2.  **Lịch chạy Cleaning (Làm sạch)**: Được cấu hình **động** dựa trên trạng thái hoạt động của symbols trong database thông qua [scheduler.py](file:///d:/sources/repos/NCKH/services/ingestion/app/scheduler.py):
+    *   Hệ thống tự động quét danh sách symbols có `status = 'active'` từ bảng `market.symbol`.
+    *   **Crypto symbols**: Chạy làm sạch hàng giờ. Phút chạy nến được **stagger** (phân bổ cách nhau `CLEAN_STAGGER_INTERVAL_MINS` phút) để tránh nghẽn database do các worker cùng ghi dữ liệu một lúc.
+    *   **Stock symbols**: Chạy làm sạch hàng ngày (từ Thứ 2 đến Thứ 6). Giờ chạy bắt đầu từ `CLEAN_STOCK_HOUR_UTC` (mặc định là `09:00 UTC` / `16:00 VN`, sau giờ đóng cửa sàn HOSE). Phút chạy cũng được stagger tuần tự.
+
+### Cách thay đổi lịch chạy / tham số Scheduler
+Nhà phát triển có thể điều chỉnh lịch chạy thông qua các biến môi trường trong file `.env` mà không cần sửa code:
+*   `CLEAN_STOCK_HOUR_UTC`: Thay đổi giờ chạy làm sạch cổ phiếu daily (múi giờ UTC, ví dụ đặt `9` ứng với `16:00 VN`).
+*   `CLEAN_STAGGER_INTERVAL_MINS`: Khoảng giãn cách phút giữa các symbol khi chạy task (mặc định là `2` phút). Ví dụ, nếu có 3 cổ phiếu active FPT, VCB, MSN thì FPT chạy lúc 16:00, VCB chạy lúc 16:02, MSN chạy lúc 16:04.
+

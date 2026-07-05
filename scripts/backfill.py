@@ -1,5 +1,6 @@
 import argparse
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from shared.utils.logging import setup_logging
@@ -83,14 +84,33 @@ def run_backfill():
             try:
                 adapter = BinanceAdapter()
                 since_time = datetime.now(timezone.utc) - timedelta(days=args.days)
-                since_ms = int(since_time.timestamp() * 1000)
+                cursor_ms = int(since_time.timestamp() * 1000)
 
-                candles = adapter.fetch_historical_ohlcv(
-                    symbol=args.symbol,
-                    timeframe=args.resolution,
-                    since_timestamp_ms=since_ms,
-                    limit=1000,
-                )
+                # Pagination loop: CCXT returns max 1000 candles per call.
+                # For 2 years of 1h data (~17,520 candles), we need multiple calls.
+                candles = []
+                batch_num = 0
+                while True:
+                    batch_num += 1
+                    batch = adapter.fetch_historical_ohlcv(
+                        symbol=args.symbol,
+                        timeframe=args.resolution,
+                        since_timestamp_ms=cursor_ms,
+                        limit=1000,
+                    )
+                    if not batch:
+                        break
+                    candles.extend(batch)
+                    logger.info(
+                        f"  Batch {batch_num}: fetched {len(batch)} candles "
+                        f"(total: {len(candles)})"
+                    )
+                    # Advance cursor past the last candle's timestamp
+                    last_ts_ms = int(batch[-1].timestamp.timestamp() * 1000)
+                    cursor_ms = last_ts_ms + 1  # +1ms to avoid duplicates
+                    if len(batch) < 1000:
+                        break  # No more data available
+                    time.sleep(0.5)  # Rate limit between batches
 
                 if candles:
                     rows = []

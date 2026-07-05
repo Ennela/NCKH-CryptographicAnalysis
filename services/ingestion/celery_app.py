@@ -40,3 +40,19 @@ celery_app.conf.beat_schedule = {
         "args": (["FPT", "VCB", "MSN"], "1d"),
     },
 }
+
+# Tích hợp dynamic cleaning schedules từ scheduler.py
+try:
+    try:
+        from app.scheduler import generate_beat_schedule
+    except ImportError:
+        from services.ingestion.app.scheduler import generate_beat_schedule
+
+    cleaning_schedule = generate_beat_schedule()
+    celery_app.conf.beat_schedule.update(cleaning_schedule)
+except Exception as exc:
+    import logging
+    logging.getLogger("celery").warning(
+        "Không thể tải dynamic cleaning schedules cho Celery Beat: %s", exc
+    )
+
