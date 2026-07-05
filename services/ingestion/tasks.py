@@ -1,8 +1,10 @@
 import logging
-from datetime import timedelta
-from typing import List
+from datetime import timedelta, datetime, timezone
+from typing import List, Any
 from decimal import Decimal
 from celery_app import celery_app
+from celery.exceptions import MaxRetriesExceededError
+from sqlalchemy import exc, text
 from shared.db.session import SessionLocal
 from shared.utils.timezone import now_utc
 from shared.db.mappers import split_crypto_pair
@@ -17,6 +19,12 @@ from shared.db.repositories.market_repo import (
 )
 from adapters.binance_adapter import BinanceAdapter
 from adapters.vnstock_adapter import VNStockAdapter
+
+# Safe imports for pipeline processing module
+try:
+    from app.pipeline import run_clean_and_store
+except ImportError:
+    from services.ingestion.app.pipeline import run_clean_and_store
 
 logger = logging.getLogger(__name__)
 
@@ -254,3 +262,105 @@ def ingest_stocks_task(symbols: List[str], resolution: str = "1d") -> int:
         db.close()
 
     return count
+
+
+@celery_app.task(bind=True, max_retries=3)
+def clean_and_store_task(self, symbol_id: int, timeframe: str) -> dict[str, Any]:
+    """
+    Celery task to run the cleaning pipeline and store clean data.
+    Logs the job status in ops.job_log, updates it to success or failed, and
+    performs retries with exponential backoff on database transient connection issues.
+    """
+    db = SessionLocal()
+    celery_task_id = self.request.id
+
+    # 1. Log job start
+    job_id = log_job(
+        db,
+        job_type="clean",
+        job_name=f"clean_and_store_{symbol_id}_{timeframe}",
+        status="running",
+        symbol_id=symbol_id,
+        timeframe=timeframe,
+    )
+
+    # Assocate the celery task id
+    if celery_task_id:
+        try:
+            db.execute(
+                text("UPDATE ops.job_log SET celery_task_id = :task_id WHERE id = :id"),
+                {"task_id": celery_task_id, "id": job_id},
+            )
+            db.commit()
+        except Exception as e:
+            logger.warning(f"Could not update celery_task_id in ops.job_log: {e}")
+            db.rollback()
+
+    start_time = datetime.now(timezone.utc)
+
+    try:
+        # 2. Run pipeline
+        report = run_clean_and_store(db, symbol_id, timeframe)
+
+        # 3. Success logging
+        duration_ms = int(
+            (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
+        )
+        rows_affected = report.get("output_rows", 0)
+
+        update_job(
+            db,
+            job_id,
+            status="success",
+            rows_affected=rows_affected,
+            duration_ms=duration_ms,
+        )
+        db.commit()
+        return report
+
+    except exc.OperationalError as e:
+        db.rollback()
+        duration_ms = int(
+            (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
+        )
+        logger.warning(
+            f"Database operational error in clean_and_store_task "
+            f"(retry {self.request.retries}/3): {e}"
+        )
+
+        try:
+            # Exponential backoff countdown: 5s, 10s, 20s
+            countdown = 5 * (2 ** self.request.retries)
+            raise self.retry(exc=e, countdown=countdown)
+        except MaxRetriesExceededError as retry_err:
+            update_job(
+                db,
+                job_id,
+                status="failed",
+                duration_ms=duration_ms,
+                error_message=f"Max retries exceeded: {str(e)}",
+            )
+            db.commit()
+            raise retry_err
+
+    except Exception as e:
+        db.rollback()
+        duration_ms = int(
+            (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
+        )
+        logger.error(
+            f"Logic or data validation error in clean_and_store_task: {e}"
+        )
+
+        update_job(
+            db,
+            job_id,
+            status="failed",
+            duration_ms=duration_ms,
+            error_message=str(e),
+        )
+        db.commit()
+        raise e
+
+    finally:
+        db.close()
