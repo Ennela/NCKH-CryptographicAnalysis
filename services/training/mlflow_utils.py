@@ -38,28 +38,46 @@ def log_experiment_run(
 
         # Log and Register Model
         if model_name_in_registry:
-            # Logs standard model based on type (PyTorch, XGBoost, sklearn, etc)
-            if hasattr(model, "predict") and "xgboost" in run_name.lower():
-                mlflow.xgboost.log_model(
-                    model,
-                    artifact_path="model",
-                    registered_model_name=model_name_in_registry,
+            try:
+                # Logs standard model based on type (PyTorch, XGBoost, sklearn, etc)
+                if hasattr(model, "predict") and "xgboost" in run_name.lower():
+                    mlflow.xgboost.log_model(
+                        model,
+                        artifact_path="model",
+                        registered_model_name=model_name_in_registry,
+                    )
+                elif hasattr(model, "state_dict"):  # PyTorch Model
+                    mlflow.pytorch.log_model(
+                        model,
+                        artifact_path="model",
+                        registered_model_name=model_name_in_registry,
+                    )
+                else:  # sklearn (Random Forest, ARIMA, etc)
+                    mlflow.sklearn.log_model(
+                        model,
+                        artifact_path="model",
+                        registered_model_name=model_name_in_registry,
+                    )
+                logger.info(f"Model registered as: {model_name_in_registry}")
+            except Exception as exc:
+                # Fallback: MLflow server may not support logged-models API
+                # (version mismatch).  Log model as artifact without registry.
+                logger.warning(
+                    "Failed to register model '%s' (server may be older): %s. "
+                    "Logging as artifact only.",
+                    model_name_in_registry,
+                    exc,
                 )
-            elif hasattr(model, "state_dict"):  # PyTorch Model
-                mlflow.pytorch.log_model(
-                    model,
-                    artifact_path="model",
-                    registered_model_name=model_name_in_registry,
-                )
-            else:  # Fallback to standard python/statsmodels or pickle
-                mlflow.sklearn.log_model(
-                    model,
-                    artifact_path="model",
-                    registered_model_name=model_name_in_registry,
-                )
-            logger.info(f"Model registered as: {model_name_in_registry}")
+                try:
+                    mlflow.sklearn.log_model(model, artifact_path="model")
+                    logger.info("Model logged as artifact (without registry)")
+                except Exception:
+                    logger.warning("Could not log model artifact — skipping.")
         else:
-            mlflow.sklearn.log_model(model, artifact_path="model")
-            logger.info("Model logged to MLflow without registration")
+            try:
+                mlflow.sklearn.log_model(model, artifact_path="model")
+                logger.info("Model logged to MLflow without registration")
+            except Exception:
+                logger.warning("Could not log model artifact — skipping.")
 
         return run.info.run_id

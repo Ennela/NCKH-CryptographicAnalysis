@@ -1,28 +1,61 @@
+"""
+Stock and Crypto Training Pipeline.
+
+Supports 4 models: ARIMA, Random Forest, XGBoost, GRU.
+Reads data from ``market.ohlcv``, engineers features, splits by time
+(train 70% / val 15% / test 15%), computes Naive baseline, and logs
+all metrics to MLflow.
+"""
+
 import argparse
 import logging
+import random
+from typing import Any, Dict
+
 import numpy as np
 import optuna
+import torch
+
 from shared.utils.logging import setup_logging
-from data_loader import DataLoader
+from data_loader import DataLoader, FEATURE_COLUMNS
 from models.arima_model import ARIMABaseline
 from models.xgboost_model import XGBoostModelWrapper
-from evaluate import evaluate_predictions
+from models.random_forest_model import RandomForestModelWrapper
+from evaluate import evaluate_predictions, add_improvement_vs_naive
 from mlflow_utils import log_experiment_run
 
 # Initialize logging
 setup_logging()
 logger = logging.getLogger(__name__)
 
+# ==============================================================================
+# Reproducibility — fix random seeds (AGENTS.md §6)
+# ==============================================================================
 
-def parse_args():
+RANDOM_SEED: int = 42
+
+random.seed(RANDOM_SEED)
+np.random.seed(RANDOM_SEED)
+torch.manual_seed(RANDOM_SEED)
+
+
+# ==============================================================================
+# CLI
+# ==============================================================================
+
+
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Stock and Crypto Training Pipeline")
     parser.add_argument(
-        "--ticker", type=str, default="BTC/USDT", help="Ticker ID to train on"
+        "--ticker",
+        type=str,
+        default="BTC/USDT",
+        help="Ticker ID to train on (e.g. BTCUSDT, BTC/USDT, FPT)",
     )
     parser.add_argument(
         "--model",
         type=str,
-        choices=["arima", "xgboost", "lstm", "gru"],
+        choices=["arima", "xgboost", "random_forest", "gru", "lstm"],
         default="xgboost",
         help="Algorithm to train",
     )
@@ -35,135 +68,201 @@ def parse_args():
     return parser.parse_args()
 
 
-def objective_optuna(trial: optuna.Trial, X_train, y_train, X_val, y_val) -> float:
+# ==============================================================================
+# Optuna helper (XGBoost)
+# ==============================================================================
+
+
+def objective_optuna(
+    trial: optuna.Trial,
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    X_val: np.ndarray,
+    y_val: np.ndarray,
+) -> float:
     """Optuna objective function for tuning XGBoost parameters."""
-    # TODO: Define search space
-    params = {
+    params: Dict[str, Any] = {
         "n_estimators": trial.suggest_int("n_estimators", 50, 200),
         "max_depth": trial.suggest_int("max_depth", 3, 9),
         "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.2, log=True),
     }
 
-    # Train
     model = XGBoostModelWrapper(params=params)
     model.fit(X_train, y_train)
 
-    # Predict
     preds = model.predict(X_val)
-
-    # Evaluate MAE
-    mae = np.mean(np.abs(y_val.values - preds))
-    return float(mae)
+    mae = float(np.mean(np.abs(y_val - preds)))
+    return mae
 
 
-def run_pipeline():
+# ==============================================================================
+# Main pipeline
+# ==============================================================================
+
+
+def run_pipeline() -> None:
     args = parse_args()
-    logger.info(f"Running pipeline for {args.ticker} using {args.model} model")
+    logger.info("Running pipeline for %s using %s model", args.ticker, args.model)
 
+    # ------------------------------------------------------------------
     # 1. Load Data
+    # ------------------------------------------------------------------
     loader = DataLoader(ticker_id=args.ticker, resolution=args.resolution)
-    raw_df = loader.load_raw_data(limit=1000)
+    raw_df = loader.load_raw_data(limit=None)
 
     if raw_df.empty:
         logger.error(
-            f"No historical prices found for {args.ticker}. Please seed database or run ingestion first."
+            "No historical prices found for %s. "
+            "Please seed database or run ingestion first.",
+            args.ticker,
         )
         return
 
+    # ------------------------------------------------------------------
     # 2. Feature Engineering
+    # ------------------------------------------------------------------
     features_df = loader.engineer_features(raw_df)
-    loader.save_features_to_db(features_df)
+    logger.info("Feature engineering complete — %d rows, %d columns",
+                len(features_df), len(features_df.columns))
 
-    # 3. Train Test Split
-    train_df, test_df = loader.prepare_train_test_split(features_df)
+    # ------------------------------------------------------------------
+    # 3. Add target BEFORE split (avoids boundary data loss)
+    # ------------------------------------------------------------------
+    features_df = DataLoader.add_target(features_df, horizon=1, target_mode="next_close")
 
-    # Define targets and features
-    feature_cols = ["returns", "volatility", "rsi", "macd", "macd_signal"]
-    target_col = "close"
+    # ------------------------------------------------------------------
+    # 4. Train / Validation / Test split (sequential, no shuffle)
+    # ------------------------------------------------------------------
+    train_df, val_df, test_df = loader.prepare_train_validation_test_split(features_df)
 
-    # Settle features & labels (For XGBoost/ML baseline)
-    # We predict next day's close price, so target is close shifted by -1
-    train_df["target"] = train_df[target_col].shift(-1)
-    test_df["target"] = test_df[target_col].shift(-1)
+    if len(test_df) < 5:
+        logger.error(
+            "Test set too small (%d rows). Need more data to evaluate.",
+            len(test_df),
+        )
+        return
 
-    train_df = train_df.dropna()
-    test_df = test_df.dropna()
+    # Feature / target arrays for ML models
+    feature_cols = [c for c in FEATURE_COLUMNS if c in train_df.columns]
+    target_col = "target"
 
-    X_train, y_train = train_df[feature_cols], train_df["target"]
-    X_test, y_test = test_df[feature_cols], test_df["target"]
+    X_train = train_df[feature_cols]
+    y_train = train_df[target_col]
+    X_val = val_df[feature_cols]
+    y_val = val_df[target_col]
+    X_test = test_df[feature_cols]
+    y_test = test_df[target_col]
 
-    # 4. Training & Optuna Tuning
-    trained_model = None
-    params_logged = {}
+    # previous_close at time t (for DA and naive baseline):
+    # close[t] is in the same row as target[t] = close[t+1]
+    previous_close_test = test_df["close"].values
+
+    logger.info(
+        "Features: %s  |  Train=%d  Val=%d  Test=%d",
+        feature_cols, len(X_train), len(X_val), len(X_test),
+    )
+
+    # ------------------------------------------------------------------
+    # 5. Train model
+    # ------------------------------------------------------------------
+    trained_model: Any = None
+    params_logged: Dict[str, Any] = {}
+    preds: np.ndarray | None = None
 
     if args.model == "arima":
-        # ARIMA is univariate, fits directly on prices
+        # ARIMA is univariate — fits directly on close prices
         arima = ARIMABaseline(p=2, d=1, q=2)
-        arima.fit(train_df[target_col])
+        arima.fit(train_df["close"])
         trained_model = arima
         params_logged = {"p": 2, "d": 1, "q": 2}
 
-        # Evaluate
-        preds = arima.predict(steps=len(test_df))
-        metrics = evaluate_predictions(test_df[target_col].values, preds)
+        # Forecast steps = len(test_df)
+        preds = np.array(arima.predict(steps=len(test_df)))
 
     elif args.model == "xgboost":
         if args.tune:
             logger.info("Starting Optuna hyperparameter optimization...")
-            # Sequential split for Optuna train/val validation
-            X_tr, X_val = (
-                X_train.iloc[: int(len(X_train) * 0.8)],
-                X_train.iloc[int(len(X_train) * 0.8) :],
-            )
-            y_tr, y_val = (
-                y_train.iloc[: int(len(y_train) * 0.8)],
-                y_train.iloc[int(len(y_train) * 0.8) :],
-            )
-
             study = optuna.create_study(direction="minimize")
             study.optimize(
-                lambda trial: objective_optuna(trial, X_tr, y_tr, X_val, y_val),
+                lambda trial: objective_optuna(
+                    trial,
+                    X_train.values, y_train.values,
+                    X_val.values, y_val.values,
+                ),
                 n_trials=10,
             )
-            logger.info(f"Best trial params: {study.best_params}")
+            logger.info("Best trial params: %s", study.best_params)
             params_logged = study.best_params
         else:
-            params_logged = {"n_estimators": 100, "max_depth": 5, "learning_rate": 0.05}
+            params_logged = {
+                "n_estimators": 100,
+                "max_depth": 5,
+                "learning_rate": 0.05,
+            }
 
         xgb_wrapper = XGBoostModelWrapper(params=params_logged)
         xgb_wrapper.fit(X_train, y_train)
         trained_model = xgb_wrapper.model
-
-        # Evaluate
         preds = xgb_wrapper.predict(X_test)
-        metrics = evaluate_predictions(y_test.values, preds)
 
-    elif args.model in ("lstm", "gru"):
-        # TODO: Implement sequence shaping, PyTorch Dataset, PyTorch training loop
-        logger.info(
-            f"PyTorch deep learning model {args.model} placeholder training execution."
+    elif args.model == "random_forest":
+        if args.tune:
+            logger.info("Optuna tuning not yet implemented for Random Forest. Using defaults.")
+
+        params_logged = {
+            "n_estimators": 200,
+            "max_depth": 10,
+            "min_samples_split": 5,
+            "min_samples_leaf": 2,
+            "random_state": RANDOM_SEED,
+        }
+
+        rf_wrapper = RandomForestModelWrapper(params=params_logged)
+        rf_wrapper.fit(X_train, y_train)
+        trained_model = rf_wrapper.model
+        preds = rf_wrapper.predict(X_test)
+
+    elif args.model in ("gru", "lstm"):
+        # TODO: Implement full PyTorch training loop.
+        # Requires: TimeSeriesDataset, DataLoader, train/eval loop,
+        # scaler (fit on train only), create_sequences(), early stopping.
+        # See models/nn_models.py for GRUForecaster and create_sequences().
+        raise NotImplementedError(
+            f"{args.model.upper()} training loop is not yet implemented. "
+            f"See services/training/models/nn_models.py for the model class "
+            f"and create_sequences() helper. Contributions welcome!"
         )
-        # For boilerplate, we'll log a mock run
-        metrics = {"mae": 1.25, "rmse": 1.75, "mape": 0.015}
-        params_logged = {"epochs": 10, "batch_size": 32, "lr": 0.001}
-        # Create a mock neural net class to log
-        from models.nn_models import LSTMForecaster
 
-        trained_model = LSTMForecaster(
-            input_dim=len(feature_cols), hidden_dim=64, num_layers=2
+    # ------------------------------------------------------------------
+    # 6. Evaluate
+    # ------------------------------------------------------------------
+    if preds is not None:
+        metrics = evaluate_predictions(
+            y_true=y_test.values,
+            y_pred=preds,
+            previous_close=previous_close_test,
         )
+        metrics = add_improvement_vs_naive(metrics)
+    else:
+        logger.error("No predictions generated — skipping evaluation.")
+        return
 
-    # 5. Log results and save model in MLflow Registry
+    # ------------------------------------------------------------------
+    # 7. Log results to MLflow
+    # ------------------------------------------------------------------
+    # Sanitize ticker for MLflow naming (/ is not allowed)
+    ticker_safe = loader.ticker_id.replace("/", "-")
+
     run_id = log_experiment_run(
-        experiment_name=f"{args.ticker.replace('/', '-')}_Forecast",
+        experiment_name=f"{ticker_safe}_Forecast",
         run_name=f"{args.model}_run",
         params=params_logged,
         metrics=metrics,
         model=trained_model,
-        model_name_in_registry=f"{args.ticker.replace('/', '-')}_{args.model}",
+        model_name_in_registry=f"{ticker_safe}_{args.model}",
     )
 
-    logger.info(f"Training pipeline finished successfully! MLflow Run ID: {run_id}")
+    logger.info("Training pipeline finished successfully! MLflow Run ID: %s", run_id)
 
 
 if __name__ == "__main__":
