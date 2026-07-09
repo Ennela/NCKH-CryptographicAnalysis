@@ -43,6 +43,8 @@ mlruns/
 outputs/
 data/raw/
 data/processed/
+data/snapshots/*
+!data/snapshots/.gitkeep
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/

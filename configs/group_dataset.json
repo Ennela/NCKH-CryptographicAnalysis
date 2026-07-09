@@ -1,0 +1,79 @@
+{
+  "dataset_version": "group_dataset_v1",
+  "description": "Canonical dataset contract for the shared ML experiment.",
+  "source_snapshot_name": "ohlcv_full_current",
+  "snapshot_fingerprint": "381cd2ee9054a5728a694f6f1df7b952f70c2f40d8e0664c59e6414ff9c2d6d2",
+  "tables": [
+    "market.exchange",
+    "market.symbol",
+    "market.ohlcv",
+    "market.ohlcv_raw"
+  ],
+  "target": {
+    "mode": "next_close",
+    "horizon": 1
+  },
+  "split": {
+    "train_ratio": 0.7,
+    "validation_ratio": 0.15,
+    "test_ratio": 0.15
+  },
+  "assets": {
+    "stock": {
+      "symbols": [
+        "ACB",
+        "FPT",
+        "GAS",
+        "HPG",
+        "MBB",
+        "MSN",
+        "MWG",
+        "PLX",
+        "SAB",
+        "SSI",
+        "TCB",
+        "VCB",
+        "VHM",
+        "VIC",
+        "VNM"
+      ],
+      "timeframes": {
+        "1d": {
+          "start_ts": "2024-05-24T00:00:00+00:00",
+          "end_ts": "2026-06-29T00:00:00+00:00",
+          "expected_rows_per_symbol": 523,
+          "expected_total_rows": 7845
+        }
+      }
+    },
+    "crypto": {
+      "symbols": [
+        "ADAUSDT",
+        "AVAXUSDT",
+        "BNBUSDT",
+        "BTCUSDT",
+        "DOGEUSDT",
+        "DOTUSDT",
+        "ETHUSDT",
+        "LINKUSDT",
+        "SOLUSDT",
+        "XRPUSDT"
+      ],
+      "timeframes": {
+        "1d": {
+          "start_ts": "2024-06-30T07:00:00+00:00",
+          "end_ts": "2026-06-29T07:00:00+00:00",
+          "expected_rows_per_symbol": 730,
+          "expected_total_rows": 7300
+        },
+        "1h": {
+          "start_ts": "2024-06-29T22:00:00+00:00",
+          "end_ts": "2026-06-29T21:00:00+00:00",
+          "expected_rows_per_symbol_min": 17401,
+          "expected_rows_per_symbol_max": 17408,
+          "expected_total_rows": 174031
+        }
+      }
+    }
+  }
+}
