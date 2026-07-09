@@ -1,7 +1,6 @@
 import logging
 from typing import Optional
 
-import numpy as np
 import pandas as pd
 from sqlalchemy import text
 from sklearn.model_selection import TimeSeriesSplit
@@ -50,6 +49,10 @@ class DataLoader:
     Loads historical market data from TimescaleDB and engineers features for models.
 
     Reads from ``market.ohlcv`` (joined with ``market.symbol`` for ticker lookup).
+    NOTE: Official report results are valid only when run through ``train.py``
+    or ``make train-official`` with the dataset contract enabled. If using
+    DataLoader directly in a notebook, call ``validate_against_contract()`` to
+    catch ticker/resolution mistakes early.
     """
 
     def __init__(self, ticker_id: str, resolution: str = "1d") -> None:
@@ -74,12 +77,19 @@ class DataLoader:
     # Data loading
     # ------------------------------------------------------------------
 
-    def load_raw_data(self, limit: Optional[int] = None) -> pd.DataFrame:
+    def load_raw_data(
+        self,
+        limit: Optional[int] = None,
+        start_ts: Optional[str] = None,
+        end_ts: Optional[str] = None,
+    ) -> pd.DataFrame:
         """
         Loads candles from ``market.ohlcv`` joined with ``market.symbol``.
 
         Input:
             limit: maximum number of rows to return.  ``None`` means all rows.
+            start_ts: optional inclusive lower timestamp bound.
+            end_ts: optional inclusive upper timestamp bound.
 
         Output:
             DataFrame with columns: timestamp, open, high, low, close, volume.
@@ -106,30 +116,31 @@ class DataLoader:
             symbol_id: int = sym_row[0]
 
             # Step 2: query OHLCV data
+            conditions = ["symbol_id = :symbol_id", "timeframe = :timeframe"]
+            params = {
+                "symbol_id": symbol_id,
+                "timeframe": self.resolution,
+            }
+
+            if start_ts is not None:
+                conditions.append("ts >= CAST(:start_ts AS TIMESTAMPTZ)")
+                params["start_ts"] = start_ts
+            if end_ts is not None:
+                conditions.append("ts <= CAST(:end_ts AS TIMESTAMPTZ)")
+                params["end_ts"] = end_ts
+
+            query_text = (
+                "SELECT ts, open, high, low, close, volume "
+                "FROM market.ohlcv "
+                f"WHERE {' AND '.join(conditions)} "
+                "ORDER BY ts ASC"
+            )
+
             if limit is not None:
-                ohlcv_sql = text(
-                    "SELECT ts, open, high, low, close, volume "
-                    "FROM market.ohlcv "
-                    "WHERE symbol_id = :symbol_id AND timeframe = :timeframe "
-                    "ORDER BY ts ASC "
-                    "LIMIT :limit"
-                )
-                params = {
-                    "symbol_id": symbol_id,
-                    "timeframe": self.resolution,
-                    "limit": limit,
-                }
-            else:
-                ohlcv_sql = text(
-                    "SELECT ts, open, high, low, close, volume "
-                    "FROM market.ohlcv "
-                    "WHERE symbol_id = :symbol_id AND timeframe = :timeframe "
-                    "ORDER BY ts ASC"
-                )
-                params = {
-                    "symbol_id": symbol_id,
-                    "timeframe": self.resolution,
-                }
+                query_text += " LIMIT :limit"
+                params["limit"] = limit
+
+            ohlcv_sql = text(query_text)
 
             df = pd.read_sql_query(ohlcv_sql, con=db.bind, params=params)
 
@@ -161,6 +172,39 @@ class DataLoader:
 
         finally:
             db.close()
+
+    def validate_against_contract(
+        self,
+        contract_path: str = "configs/group_dataset.json",
+    ) -> None:
+        """
+        Check that this loader's ticker and resolution exist in the contract.
+
+        This is a soft check for notebooks and standalone scripts. It does not
+        replace contract enforcement in ``train.py`` for official reports.
+
+        Raises:
+            ValueError: if the ticker or resolution is not in the contract.
+        """
+        try:
+            from services.training.dataset_contract import (
+                find_asset_for_symbol,
+                get_timeframe_contract,
+                load_dataset_contract,
+            )
+        except ModuleNotFoundError:
+            from dataset_contract import (
+                find_asset_for_symbol,
+                get_timeframe_contract,
+                load_dataset_contract,
+            )
+
+        contract = load_dataset_contract(contract_path)
+        if contract is None:
+            raise ValueError("Cannot load dataset contract.")
+
+        find_asset_for_symbol(contract, self.ticker_id)
+        get_timeframe_contract(contract, self.ticker_id, self.resolution)
 
     # ------------------------------------------------------------------
     # Feature engineering

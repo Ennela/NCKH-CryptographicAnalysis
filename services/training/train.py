@@ -10,6 +10,7 @@ all metrics to MLflow.
 import argparse
 import logging
 import random
+import sys
 from typing import Any, Dict
 
 import numpy as np
@@ -23,6 +24,14 @@ from models.xgboost_model import XGBoostModelWrapper
 from models.random_forest_model import RandomForestModelWrapper
 from evaluate import evaluate_predictions, add_improvement_vs_naive
 from mlflow_utils import log_experiment_run
+from dataset_contract import (
+    DatasetContract,
+    get_split_config,
+    get_target_config,
+    get_timeframe_contract,
+    load_dataset_contract,
+    validate_row_count,
+)
 
 # Initialize logging
 setup_logging()
@@ -65,7 +74,63 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--tune", action="store_true", help="Perform hyperparameter tuning with Optuna"
     )
+    parser.add_argument(
+        "--dataset-config",
+        type=str,
+        default="configs/group_dataset.json",
+        help="Dataset contract JSON. Use 'none' to disable contract enforcement.",
+    )
+    parser.add_argument(
+        "--allow-custom-data",
+        action="store_true",
+        default=False,
+        help=(
+            "Acknowledge that results with custom data cannot be used in "
+            "official reports."
+        ),
+    )
     return parser.parse_args()
+
+
+def _load_dataset_contract_or_exit(args: argparse.Namespace) -> DatasetContract | None:
+    """Load the dataset contract and reject accidental official-data bypasses."""
+    dataset_config_path = (
+        None if args.dataset_config.lower() == "none" else args.dataset_config
+    )
+    dataset_contract = load_dataset_contract(dataset_config_path)
+
+    if dataset_contract is None:
+        if not args.allow_custom_data:
+            logger.error(
+                "[WARNING] Dataset contract disabled (--dataset-config none). "
+                "Results from this run CANNOT be used in official reports. "
+                "If this is a debug run with custom data, add --allow-custom-data."
+            )
+            sys.exit(1)
+
+        logger.warning(
+            "Running with CUSTOM DATA (no contract). Results will NOT be valid "
+            "for official reports."
+        )
+
+    return dataset_contract
+
+
+def _dataset_tracking_params(
+    dataset_contract: DatasetContract | None,
+) -> dict[str, str]:
+    """Return MLflow dataset metadata for official or custom-data runs."""
+    if dataset_contract is None:
+        return {
+            "dataset_version": "CUSTOM",
+            "source_snapshot_name": "CUSTOM",
+            "dataset_contract": "NONE - CUSTOM DATA",
+        }
+
+    return {
+        "dataset_version": str(dataset_contract["dataset_version"]),
+        "source_snapshot_name": str(dataset_contract["source_snapshot_name"]),
+    }
 
 
 # ==============================================================================
@@ -104,11 +169,29 @@ def run_pipeline() -> None:
     args = parse_args()
     logger.info("Running pipeline for %s using %s model", args.ticker, args.model)
 
+    dataset_contract = _load_dataset_contract_or_exit(args)
+    dataset_timeframe = None
+    if dataset_contract is not None:
+        dataset_timeframe = get_timeframe_contract(
+            dataset_contract,
+            args.ticker,
+            args.resolution,
+        )
+        logger.info(
+            "Using dataset contract %s (%s)",
+            dataset_contract["dataset_version"],
+            dataset_contract["source_snapshot_name"],
+        )
+
     # ------------------------------------------------------------------
     # 1. Load Data
     # ------------------------------------------------------------------
     loader = DataLoader(ticker_id=args.ticker, resolution=args.resolution)
-    raw_df = loader.load_raw_data(limit=None)
+    raw_df = loader.load_raw_data(
+        limit=None,
+        start_ts=dataset_timeframe["start_ts"] if dataset_timeframe else None,
+        end_ts=dataset_timeframe["end_ts"] if dataset_timeframe else None,
+    )
 
     if raw_df.empty:
         logger.error(
@@ -117,6 +200,14 @@ def run_pipeline() -> None:
             args.ticker,
         )
         return
+
+    if dataset_contract is not None:
+        validate_row_count(
+            dataset_contract,
+            loader.ticker_id,
+            args.resolution,
+            len(raw_df),
+        )
 
     # ------------------------------------------------------------------
     # 2. Feature Engineering
@@ -128,12 +219,22 @@ def run_pipeline() -> None:
     # ------------------------------------------------------------------
     # 3. Add target BEFORE split (avoids boundary data loss)
     # ------------------------------------------------------------------
-    features_df = DataLoader.add_target(features_df, horizon=1, target_mode="next_close")
+    target_horizon, target_mode = get_target_config(dataset_contract)
+    features_df = DataLoader.add_target(
+        features_df,
+        horizon=target_horizon,
+        target_mode=target_mode,
+    )
 
     # ------------------------------------------------------------------
     # 4. Train / Validation / Test split (sequential, no shuffle)
     # ------------------------------------------------------------------
-    train_df, val_df, test_df = loader.prepare_train_validation_test_split(features_df)
+    train_ratio, validation_ratio = get_split_config(dataset_contract)
+    train_df, val_df, test_df = loader.prepare_train_validation_test_split(
+        features_df,
+        train_ratio=train_ratio,
+        validation_ratio=validation_ratio,
+    )
 
     if len(test_df) < 5:
         logger.error(
@@ -168,6 +269,15 @@ def run_pipeline() -> None:
     trained_model: Any = None
     params_logged: Dict[str, Any] = {}
     preds: np.ndarray | None = None
+    base_params: Dict[str, Any] = {
+        "ticker": loader.ticker_id,
+        "resolution": args.resolution,
+        "target_mode": target_mode,
+        "target_horizon": target_horizon,
+        "train_ratio": train_ratio,
+        "validation_ratio": validation_ratio,
+    }
+    base_params.update(_dataset_tracking_params(dataset_contract))
 
     if args.model == "arima":
         # ARIMA is univariate — fits directly on close prices
@@ -252,6 +362,8 @@ def run_pipeline() -> None:
     # ------------------------------------------------------------------
     # Sanitize ticker for MLflow naming (/ is not allowed)
     ticker_safe = loader.ticker_id.replace("/", "-")
+
+    params_logged = {**base_params, **params_logged}
 
     run_id = log_experiment_run(
         experiment_name=f"{ticker_safe}_Forecast",
