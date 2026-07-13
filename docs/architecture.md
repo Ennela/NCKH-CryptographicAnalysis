@@ -124,9 +124,13 @@ Lưu trữ lịch sử dự đoán của mô hình để đánh giá hiệu năn
     *   Worker gọi API Binance hoặc thư viện `vnstock` để cào dữ liệu mới nhất.
     *   Dữ liệu được làm sạch, chuyển đổi múi giờ sang UTC, và thực hiện câu lệnh `UPSERT` vào TimescaleDB.
 2.  **Huấn luyện (Training)**:
-    *   Nhà nghiên cứu chạy kịch bản huấn luyện.
-    *   Hệ thống tải dữ liệu từ TimescaleDB, phân tách train/val/test theo trật tự thời gian (Time-series Split).
-    *   Tính toán các đặc trưng (features) kỹ thuật: MACD, RSI, Volatility, Returns.
+    *   Nhà nghiên cứu chạy kịch bản huấn luyện (VD: `train_xgboost.py` cho XGBoost).
+    *   Hệ thống tải dữ liệu từ snapshot khóa `group_dataset_v1` qua `shared/dataset/loader.py`
+        (thay vì truy vấn trực tiếp TimescaleDB). Tập train/val/test đã được chia cố định theo
+        thời gian trong contract `configs/group_dataset.json`, không tính lại mỗi lần train.
+    *   Tính toán đặc trưng kỹ thuật (19 features cho XGBoost): lag close, rolling mean/std,
+        RSI, MACD, Volatility, Bollinger Band Width, ATR, v.v. — xem chi tiết tại
+        `services/training/models/xgboost_features.py`.
     *   Huấn luyện các mô hình. `Optuna` dò tìm siêu tham số.
     *   Model tốt nhất được log lên `MLflow` kèm chỉ số hiệu năng (MAE, RMSE, MAPE).
 3.  **Phục vụ (Inference)**:
@@ -149,4 +153,23 @@ Quy trình thu thập dữ liệu (`ingest`) và làm sạch dữ liệu (`clean
 Nhà phát triển có thể điều chỉnh lịch chạy thông qua các biến môi trường trong file `.env` mà không cần sửa code:
 *   `CLEAN_STOCK_HOUR_UTC`: Thay đổi giờ chạy làm sạch cổ phiếu daily (múi giờ UTC, ví dụ đặt `9` ứng với `16:00 VN`).
 *   `CLEAN_STAGGER_INTERVAL_MINS`: Khoảng giãn cách phút giữa các symbol khi chạy task (mặc định là `2` phút). Ví dụ, nếu có 3 cổ phiếu active FPT, VCB, MSN thì FPT chạy lúc 16:00, VCB chạy lúc 16:02, MSN chạy lúc 16:04.
+
+---
+
+## 5. Ghi Chú Kỹ Thuật
+
+### 5.1 Entrypoint huấn luyện XGBoost
+
+`train_xgboost.py` là entrypoint riêng cho mô hình XGBoost, tách khỏi `train.py` (entrypoint chung
+cho các mô hình khác). Lý do tách: XGBoost có pipeline feature engineering riêng
+(`xgboost_features.py`), Optuna search space riêng, và cách xử lý early stopping khác với
+các mô hình PyTorch. Ai sửa `train.py` không cần lo ảnh hưởng XGBoost và ngược lại.
+
+### 5.2 `early_stopping_rounds` (XGBoost ≥ 2.0)
+
+Từ XGBoost 2.0, `early_stopping_rounds` không còn truyền qua `fit()` mà phải gọi
+`model.set_params(early_stopping_rounds=N)` trước khi fit. Khi không dùng validation set,
+cần gọi `set_params(early_stopping_rounds=None)` để xóa trạng thái cũ. Xem implementation
+tại `services/training/models/xgboost_model.py`. Ai viết mô hình XGBoost mới hoặc sửa
+logic fit cần lưu ý để tránh `TypeError` khi fit.
 
