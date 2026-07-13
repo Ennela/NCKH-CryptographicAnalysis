@@ -41,6 +41,8 @@ active_env/
 !.env.example
 mlruns/
 outputs/
+results/*.csv
+mlflow.db
 data/raw/
 data/processed/
 data/snapshots/*
