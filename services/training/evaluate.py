@@ -13,6 +13,55 @@ from shared.utils.metrics import (
 logger = logging.getLogger(__name__)
 
 
+def compare_with_naive(
+    y_true: Union[np.ndarray, List[float]],
+    y_pred: Union[np.ndarray, List[float]],
+    y_naive: Union[np.ndarray, List[float]],
+) -> Dict[str, Dict[str, Optional[float]]]:
+    """Compare model errors with a naive ``next close = current close`` forecast.
+
+    ``model`` and ``naive`` contain MAE, RMSE, and MAPE. MAPE remains a
+    fraction, matching the existing metric contract. ``improvement_pct`` is
+    ``(naive - model) / naive * 100`` and is ``None`` when the naive error is
+    smaller than ``1e-9``. ``improvement_abs`` is signed in the same direction,
+    so a positive value always means the model has lower error than the naive
+    forecast.
+
+    Absolute MAE/RMSE improvements use the target price unit and are only
+    directly comparable for models evaluated on the same symbol.
+    ``improvement_abs['mape']`` is expressed in percentage points.
+    """
+    model_metrics = {
+        "mae": mean_absolute_error(y_true, y_pred),
+        "rmse": root_mean_squared_error(y_true, y_pred),
+        "mape": mean_absolute_percentage_error(y_true, y_pred),
+    }
+    naive_metrics = {
+        "mae": mean_absolute_error(y_true, y_naive),
+        "rmse": root_mean_squared_error(y_true, y_naive),
+        "mape": mean_absolute_percentage_error(y_true, y_naive),
+    }
+    improvement_pct: Dict[str, Optional[float]] = {}
+    improvement_abs: Dict[str, Optional[float]] = {}
+
+    for metric_name, model_value in model_metrics.items():
+        naive_value = naive_metrics[metric_name]
+        difference = naive_value - model_value
+        improvement_pct[metric_name] = (
+            None if abs(naive_value) < 1e-9 else difference / naive_value * 100.0
+        )
+        improvement_abs[metric_name] = (
+            difference * 100.0 if metric_name == "mape" else difference
+        )
+
+    return {
+        "model": model_metrics,
+        "naive": naive_metrics,
+        "improvement_pct": improvement_pct,
+        "improvement_abs": improvement_abs,
+    }
+
+
 def evaluate_predictions(
     y_true: Union[np.ndarray, List[float]],
     y_pred: Union[np.ndarray, List[float]],
@@ -47,7 +96,11 @@ def evaluate_predictions(
 
     logger.info(
         "Model — MAE=%.4f  RMSE=%.4f  MAPE=%.4f%%  R²=%.4f  DA=%.4f",
-        mae, rmse, mape * 100, r2, da,
+        mae,
+        rmse,
+        mape * 100,
+        r2,
+        da,
     )
 
     # Naive baseline: predict next close = current close
@@ -104,7 +157,10 @@ def compute_naive_baseline_metrics(
 
     logger.info(
         "Naive — MAE=%.4f  RMSE=%.4f  MAPE=%.4f%%  DA=%.4f",
-        n_mae, n_rmse, n_mape * 100, n_da,
+        n_mae,
+        n_rmse,
+        n_mape * 100,
+        n_da,
     )
 
     return result
