@@ -1,6 +1,6 @@
 # Hệ Thống Thu Thập, Phân Tích Trực Quan & Dự Báo Giá Cổ Phiếu & Tiền Số
 
-Hệ thống tự động thu thập dữ liệu giá từ **thị trường chứng khoán Việt Nam** (vnstock) và **thị trường tiền mã hóa** (Binance), lưu trữ hiệu năng cao bằng **TimescaleDB**, huấn luyện các mô hình dự báo chuỗi thời gian (**ARIMA, XGBoost, LSTM, GRU**), quản lý vòng đời mô hình bằng **MLflow** và hiển thị trực quan thông qua ứng dụng **Next.js & ECharts** kết hợp giải thích mô hình bằng **SHAP**.
+Hệ thống tự động thu thập dữ liệu giá từ **thị trường chứng khoán Việt Nam** (vnstock) và **thị trường tiền mã hóa** (Binance), lưu trữ hiệu năng cao bằng **TimescaleDB**, huấn luyện các mô hình dự báo chuỗi thời gian (**ARIMA, XGBoost, Random Forest, GRU**), quản lý vòng đời mô hình bằng **MLflow** và hiển thị trực quan thông qua ứng dụng **Next.js & ECharts** kết hợp giải thích mô hình bằng **SHAP**.
 
 ---
 
@@ -24,7 +24,7 @@ Hệ thống tự động thu thập dữ liệu giá từ **thị trường ch�
 | **Backend** | Python 3.11 + FastAPI (Kiến trúc đa dịch vụ) |
 | **Database** | PostgreSQL 16 + TimescaleDB (Hypertable cho chuỗi thời gian) |
 | **Task Queue** | Redis + Celery & Celery Beat |
-| **ML / DL** | PyTorch (LSTM, GRU), XGBoost, Statsmodels (ARIMA), Optuna, MLflow |
+| **ML / DL** | Statsmodels (ARIMA), XGBoost, scikit-learn (Random Forest), PyTorch (GRU), Optuna, MLflow |
 | **Giải thích mô hình** | SHAP (SHapley Additive exPlanations) |
 | **Frontend** | React 18 + Next.js (App Router, TypeScript) + Apache ECharts |
 | **DevOps & CI/CD** | Docker & Docker Compose, GitHub Actions, Sentry |
@@ -46,6 +46,7 @@ NCKH/
 ├── docs/
 │   ├── architecture.md               # Tài liệu kiến trúc hệ thống & ERD
 │   ├── api.md                        # Hợp đồng API (endpoints, request/response)
+│   ├── dataset.md                    # Quy ước dataset nhóm & snapshot khóa
 │   ├── experiment_report.md          # Báo cáo kết quả thí nghiệm ML
 │   └── sprint-logs/                  # Nhật ký Agile/Scrum theo sprint
 │
@@ -53,8 +54,14 @@ NCKH/
 │   ├── postgres/init.sql             # Khởi tạo DB, TimescaleDB, Hypertables
 │   └── nginx/nginx.conf              # Reverse Proxy cho Production
 │
+├── configs/
+│   └── group_dataset.json            # Contract dataset chính thức cho XGBoost
+│
 ├── shared/                           # Package Python dùng chung (pip install -e .)
 │   ├── config/settings.py            # Đọc cấu hình từ .env (pydantic-settings)
+│   ├── dataset/                      # Truy cập snapshot khóa cho XGBoost
+│   │   ├── __init__.py
+│   │   └── loader.py                 # Đọc & xác thực snapshot theo contract
 │   ├── db/
 │   │   ├── models.py                 # SQLAlchemy ORM models (market schema)
 │   │   ├── session.py                # Engine & Session factory
@@ -83,10 +90,17 @@ NCKH/
 │   ├── training/                     # Dịch vụ HUẤN LUYỆN mô hình
 │   │   ├── models/
 │   │   │   ├── arima_model.py        #   ↳ ARIMA baseline (statsmodels)
-│   │   │   ├── xgboost_model.py      #   ↳ XGBoost + SHAP
-│   │   │   └── nn_models.py          #   ↳ LSTM & GRU (PyTorch)
-│   │   ├── data_loader.py            # Tải & chia dữ liệu theo thời gian
-│   │   ├── train.py                  # Script huấn luyện chính
+│   │   │   ├── gru_model.py          #   ↳ GRU (PyTorch)
+│   │   │   ├── random_forest_features.py # ↳ Feature riêng cho Random Forest
+│   │   │   ├── random_forest_model.py #   ↳ Random Forest (scikit-learn)
+│   │   │   ├── xgboost_features.py   #   ↳ Bộ 19 feature riêng cho XGBoost
+│   │   │   └── xgboost_model.py      #   ↳ XGBoost + SHAP
+│   │   ├── data_loader.py            # Tải & chia dữ liệu cho luồng train.py
+│   │   ├── train.py                  # Entrypoint chung cũ, giữ cho luồng legacy
+│   │   ├── train_xgboost.py          # Entrypoint riêng cho XGBoost
+│   │   ├── train_random_forest.py    # Entrypoint riêng cho Random Forest
+│   │   ├── train_gru.py              # Entrypoint riêng cho GRU
+│   │   ├── train_arima.py            # Entrypoint riêng cho ARIMA
 │   │   ├── evaluate.py               # Đánh giá mô hình (MAE, RMSE, MAPE)
 │   │   ├── mlflow_utils.py           # Tiện ích log MLflow
 │   │   ├── Dockerfile
@@ -252,6 +266,16 @@ pip install -r requirements.txt
 uvicorn main:app --reload --port 8001
 ```
 
+### Chạy huấn luyện XGBoost
+
+Mỗi model có entrypoint huấn luyện riêng `train_<model>.py`; `train_xgboost.py` là bản tham khảo đầy đủ nhất với quy trình: seed cố định → đọc snapshot khóa qua `shared/dataset/loader.py` → feature engineering riêng → Optuna → evaluate so với Naive → log MLflow → ghi CSV kết quả.
+
+Nếu chưa có snapshot khóa, phải chạy `scripts/export_dataset_snapshot.py` để tạo snapshot trước (xem `docs/dataset.md`).
+
+```bash
+python -m services.training.train_xgboost --ticker <ticker> --timeframe <tf> --n-trials 50
+```
+
 ---
 
 ## Quy Trình Machine Learning
@@ -259,9 +283,9 @@ uvicorn main:app --reload --port 8001
 ```
 Thu thập dữ liệu          Feature Engineering         Huấn luyện & Đánh giá
 ┌──────────────┐          ┌──────────────────┐        ┌───────────────────────┐
-│  Binance API │──┐       │  RSI, MACD       │        │  ARIMA (baseline)     │
-│  vnstock     │──┼──────▶│  Returns         │───────▶│  XGBoost + SHAP      │
-│  Celery Beat │──┘       │  Volatility      │        │  LSTM / GRU (PyTorch) │
+│  Binance API │──┐       │  Bộ feature riêng│        │  ARIMA (baseline)     │
+│  vnstock     │──┼──────▶│  theo từng model │───────▶│XGBoost / Random Forest│
+│  Celery Beat │──┘       │  XGBoost: 19     │        │  GRU (PyTorch)        │
 └──────────────┘          └──────────────────┘        └───────────┬───────────┘
                                                                   │
                           ┌──────────────────┐                    │
@@ -274,6 +298,8 @@ Thu thập dữ liệu          Feature Engineering         Huấn luyện & Đ�
                           │  + Redis Cache   │        │  Next.js Dashboard    │
                           └──────────────────┘        └───────────────────────┘
 ```
+
+Feature Engineering sử dụng bộ feature riêng theo từng model; XGBoost hiện dùng 19 feature tại `services/training/models/xgboost_features.py`.
 
 **Nguyên tắc quan trọng:**
 - Chia dữ liệu **theo thời gian** (không xáo trộn) để tránh rò rỉ dữ liệu
