@@ -47,13 +47,34 @@
 
 ---
 
-## 4. Ai sở hữu thư mục nào (sửa đúng đất của mình)
-- TV1 (Data/Lead/DevOps): `services/ingestion/`, `infra/`, `.github/workflows/`
-- TV2 (Modeling):          `services/training/app/models/`
-- TV3 (Feature/Inference): `services/training/app/features/`, `services/inference/`
-- TV4 (Frontend):          `frontend/`
-- TV5 (QA/Docs):           `tests/` (mọi service), `docs/`
-Sửa code ngoài thư mục mình sở hữu → phải mở PR và tag người sở hữu review.
+## 4. Ai sở hữu phần nào (sửa đúng đất của mình)
+
+**Modeling (D18) — mỗi người trọn gói 1 model: feature engineering + model + entrypoint train riêng + test riêng**
+
+- Nguyễn Văn Kiên — XGBoost: services/training/models/xgboost_model.py,
+  services/training/models/xgboost_features.py, services/training/train_xgboost.py,
+  services/training/tests/test_xgboost.py
+- Lê Hải Nam — Random Forest: services/training/models/random_forest_model.py,
+  services/training/models/random_forest_features.py, services/training/train_random_forest.py,
+  services/training/tests/test_random_forest.py
+- Nguyễn Trọng Đại — GRU: services/training/models/gru_model.py (tách khỏi nn_models.py cũ,
+  vốn gộp chung LSTM đã bị loại khỏi phạm vi đề tài), services/training/train_gru.py,
+  services/training/tests/test_gru.py
+- Đỗ Quang Hà — ARIMA: services/training/models/arima_model.py, services/training/train_arima.py,
+  services/training/tests/test_arima.py
+
+**Frontend (D19)**
+
+- Khiếu Đình Trung Nguyên, Nguyễn Trọng Hiếu — frontend/
+
+**Dùng chung — cả nhóm cùng sở hữu, PR sửa phần này cần tag toàn bộ nhóm review (không chỉ 1 người):**
+
+- services/ingestion/, infra/, .github/workflows/ (hạ tầng/CI)
+- services/inference/ (API phục vụ model đã chọn)
+- shared/ (dataset loader, db, utils)
+- docs/, tests/ gốc
+
+Sửa code ngoài phần mình sở hữu → phải mở PR và tag đúng người sở hữu review.
 
 ---
 

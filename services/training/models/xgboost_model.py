@@ -25,13 +25,47 @@ class XGBoostModelWrapper:
         self.model = xgb.XGBRegressor(**self.params)
         self.explainer = None
 
-    def fit(self, X: pd.DataFrame, y: pd.Series):
+    def fit(
+        self,
+        X: pd.DataFrame,
+        y: pd.Series,
+        X_val: pd.DataFrame | None = None,
+        y_val: pd.Series | None = None,
+        early_stopping_rounds: int = 50,
+    ) -> None:
         """Fits the regressor to the feature matrix and target."""
         logger.info("Training XGBoost Regressor...")
-        self.model.fit(X, y)
+        if (X_val is None) != (y_val is None):
+            raise ValueError("X_val and y_val must be provided together.")
+        self.explainer = None
 
-        # Initialize SHAP explainer after fitting
-        self.explainer = shap.TreeExplainer(self.model)
+        if X_val is not None and y_val is not None:
+            self.model.set_params(early_stopping_rounds=early_stopping_rounds)
+            self.model.fit(
+                X,
+                y,
+                eval_set=[(X_val, y_val)],
+            )
+        else:
+            # Clear stale state when the same wrapper is fitted again without
+            # a validation set. XGBoost requires an eval_set when this option
+            # is enabled.
+            self.model.set_params(early_stopping_rounds=None)
+            self.model.fit(X, y)
+
+    def save(self, path: str) -> None:
+        """Save the fitted model in XGBoost's native format."""
+        self.model.save_model(path)
+
+    def load(self, path: str) -> None:
+        """Load a native XGBoost model and reset its lazy SHAP explainer."""
+        self.model.load_model(path)
+        self.explainer = None
+
+    @property
+    def best_iteration(self) -> int | None:
+        """Return the best boosting iteration when early stopping was used."""
+        return getattr(self.model, "best_iteration", None)
 
     def predict(self, X: pd.DataFrame) -> np.ndarray:
         """Predict target values."""
@@ -42,10 +76,9 @@ class XGBoostModelWrapper:
         Calculates SHAP values for features matrix X to understand
         the impact of each technical indicator (RSI, MACD, etc) on predictions.
         """
-        if not self.explainer:
-            raise ValueError("Model must be trained before calculating SHAP values.")
+        if self.explainer is None:
+            self.explainer = shap.TreeExplainer(self.model)
 
-        # Get SHAP values
         shap_values = self.explainer.shap_values(X)
         return shap_values
 

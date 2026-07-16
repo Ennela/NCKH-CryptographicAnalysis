@@ -103,6 +103,20 @@ docker compose run --rm training python train.py --ticker BTCUSDT --model xgboos
 Nếu DB của thành viên không khớp contract, training sẽ fail sớm thay vì âm thầm
 dùng sai data.
 
+Hiện có hai cách đọc dữ liệu training cần phân biệt:
+
+- **Cách A — `train.py` (cũ, dùng cho các model khác):** đọc contract theo luồng
+  đã mô tả ở trên và sử dụng dữ liệu trong DB local.
+- **Cách B — `train_xgboost.py` (mới, chỉ dùng cho XGBoost):** gọi
+  `assert_locked_dataset()` rồi `load_full()` qua `shared/dataset/loader.py` để
+  đọc trực tiếp locked snapshot tại
+  `data/snapshots/<source_snapshot_name>/*.csv.gz`, không đọc dữ liệu training từ
+  DB local. Chạy entrypoint này từ thư mục gốc của repo bằng lệnh:
+
+  ```bash
+  python -m services.training.train_xgboost --ticker <ticker> --timeframe <tf>
+  ```
+
 Sau khi import snapshot, mỗi thành viên nên kiểm tra:
 
 ```bash
