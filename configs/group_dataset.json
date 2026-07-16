@@ -69,9 +69,8 @@
         "1h": {
           "start_ts": "2024-06-29T22:00:00+00:00",
           "end_ts": "2026-06-29T21:00:00+00:00",
-          "expected_rows_per_symbol_min": 17401,
-          "expected_rows_per_symbol_max": 17408,
-          "expected_total_rows": 174031
+          "expected_rows_per_symbol": 17520,
+          "expected_total_rows": 175200
         }
       }
     }

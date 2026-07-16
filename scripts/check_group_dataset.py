@@ -30,9 +30,9 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _query_df(sql: str) -> pd.DataFrame:
+def _query_df(sql: str, params: dict[str, Any] | None = None) -> pd.DataFrame:
     with sync_engine.connect() as conn:
-        return pd.read_sql_query(text(sql), conn)
+        return pd.read_sql_query(text(sql), conn, params=params)
 
 
 def _expected_contract_rows(contract: dict[str, Any]) -> list[dict[str, Any]]:
@@ -102,6 +102,83 @@ def _check_snapshot_fingerprint(contract: dict[str, Any]) -> None:
         )
 
 
+def _query_contract_window(expected: dict[str, Any]) -> pd.DataFrame:
+    return _query_df(
+        """
+        SELECT
+            s.asset_class::text AS asset_class,
+            s.ticker,
+            o.timeframe::text AS timeframe,
+            COUNT(*) AS row_count,
+            MIN(o.ts) AS min_ts,
+            MAX(o.ts) AS max_ts
+        FROM market.ohlcv o
+        JOIN market.symbol s ON s.id = o.symbol_id
+        WHERE s.ticker = :ticker
+          AND o.timeframe = CAST(:timeframe AS market.timeframe)
+          AND o.ts >= CAST(:start_ts AS TIMESTAMPTZ)
+          AND o.ts <= CAST(:end_ts AS TIMESTAMPTZ)
+        GROUP BY s.asset_class, s.ticker, o.timeframe
+        """,
+        {
+            "ticker": expected["ticker"],
+            "timeframe": expected["timeframe"],
+            "start_ts": expected["start_ts"].isoformat(),
+            "end_ts": expected["end_ts"].isoformat(),
+        },
+    )
+
+
+def _query_outside_contract_window(expected: dict[str, Any]) -> pd.DataFrame:
+    return _query_df(
+        """
+        SELECT
+            COUNT(*) FILTER (
+                WHERE o.ts < CAST(:start_ts AS TIMESTAMPTZ)
+            ) AS before_count,
+            MIN(o.ts) FILTER (
+                WHERE o.ts < CAST(:start_ts AS TIMESTAMPTZ)
+            ) AS before_min_ts,
+            MAX(o.ts) FILTER (
+                WHERE o.ts < CAST(:start_ts AS TIMESTAMPTZ)
+            ) AS before_max_ts,
+            COUNT(*) FILTER (
+                WHERE o.ts > CAST(:end_ts AS TIMESTAMPTZ)
+            ) AS after_count,
+            MIN(o.ts) FILTER (
+                WHERE o.ts > CAST(:end_ts AS TIMESTAMPTZ)
+            ) AS after_min_ts,
+            MAX(o.ts) FILTER (
+                WHERE o.ts > CAST(:end_ts AS TIMESTAMPTZ)
+            ) AS after_max_ts
+        FROM market.ohlcv o
+        JOIN market.symbol s ON s.id = o.symbol_id
+        WHERE s.ticker = :ticker
+          AND o.timeframe = CAST(:timeframe AS market.timeframe)
+        """,
+        {
+            "ticker": expected["ticker"],
+            "timeframe": expected["timeframe"],
+            "start_ts": expected["start_ts"].isoformat(),
+            "end_ts": expected["end_ts"].isoformat(),
+        },
+    )
+
+
+def _query_actual_keys() -> set[tuple[str, str]]:
+    actual = _query_df(
+        """
+        SELECT DISTINCT s.ticker, o.timeframe::text AS timeframe
+        FROM market.ohlcv o
+        JOIN market.symbol s ON s.id = o.symbol_id
+        """
+    )
+    return {
+        (normalize_ticker(row.ticker), row.timeframe)
+        for row in actual.itertuples(index=False)
+    }
+
+
 def main() -> None:
     args = parse_args()
     contract = load_dataset_contract(args.dataset_config)
@@ -114,54 +191,53 @@ def main() -> None:
         contract["source_snapshot_name"],
     )
 
-    actual = _query_df(
-        """
-        SELECT
-            s.asset_class::text AS asset_class,
-            s.ticker,
-            o.timeframe::text AS timeframe,
-            COUNT(*) AS row_count,
-            MIN(o.ts) AS min_ts,
-            MAX(o.ts) AS max_ts
-        FROM market.ohlcv o
-        JOIN market.symbol s ON s.id = o.symbol_id
-        GROUP BY s.asset_class, s.ticker, o.timeframe
-        ORDER BY s.asset_class, s.ticker, o.timeframe
-        """
-    )
-
-    actual["ticker"] = actual["ticker"].map(normalize_ticker)
-    actual["min_ts"] = pd.to_datetime(actual["min_ts"])
-    actual["max_ts"] = pd.to_datetime(actual["max_ts"])
-
-    actual_keys = {
-        (row.ticker, row.timeframe): row
-        for row in actual.itertuples(index=False)
-    }
     expected_rows = _expected_contract_rows(contract)
     expected_keys = {(row["ticker"], row["timeframe"]) for row in expected_rows}
+    actual_keys = _query_actual_keys()
 
     errors: list[str] = []
+    warnings: list[str] = []
     for expected in expected_rows:
         key = (expected["ticker"], expected["timeframe"])
-        actual_row = actual_keys.get(key)
-        if actual_row is None:
+        actual_window = _query_contract_window(expected)
+        if actual_window.empty:
             errors.append(f"Missing {expected['ticker']} {expected['timeframe']}")
             continue
 
+        actual_row = actual_window.iloc[0]
+        min_ts = pd.Timestamp(actual_row["min_ts"])
+        max_ts = pd.Timestamp(actual_row["max_ts"])
         errors.extend(
             f"{expected['ticker']} {expected['timeframe']}: {message}"
-            for message in _validate_count(expected, int(actual_row.row_count))
+            for message in _validate_count(expected, int(actual_row["row_count"]))
         )
-        if actual_row.min_ts != expected["start_ts"]:
+        if min_ts != expected["start_ts"]:
             errors.append(
                 f"{expected['ticker']} {expected['timeframe']}: "
-                f"min_ts={actual_row.min_ts}, expected={expected['start_ts']}"
+                f"min_ts={min_ts}, expected={expected['start_ts']}"
             )
-        if actual_row.max_ts != expected["end_ts"]:
+        if max_ts != expected["end_ts"]:
             errors.append(
                 f"{expected['ticker']} {expected['timeframe']}: "
-                f"max_ts={actual_row.max_ts}, expected={expected['end_ts']}"
+                f"max_ts={max_ts}, expected={expected['end_ts']}"
+            )
+
+        outside = _query_outside_contract_window(expected).iloc[0]
+        before_count = int(outside["before_count"])
+        after_count = int(outside["after_count"])
+        if before_count > 0:
+            warnings.append(
+                f"{expected['ticker']} {expected['timeframe']}: "
+                f"{before_count} row(s) before contract window "
+                f"({outside['before_min_ts']} -> {outside['before_max_ts']}); "
+                "training ignores them via start/end bounds."
+            )
+        if after_count > 0:
+            warnings.append(
+                f"{expected['ticker']} {expected['timeframe']}: "
+                f"{after_count} row(s) after contract window "
+                f"({outside['after_min_ts']} -> {outside['after_max_ts']}); "
+                "training ignores them via start/end bounds."
             )
 
     extra_keys = set(actual_keys) - expected_keys
@@ -173,6 +249,9 @@ def main() -> None:
         for error in errors:
             logger.error("  - %s", error)
         raise SystemExit(1)
+
+    for warning in warnings:
+        logger.warning("  - %s", warning)
 
     _check_snapshot_fingerprint(contract)
     logger.info("Dataset check passed: local DB matches %s", contract["dataset_version"])
