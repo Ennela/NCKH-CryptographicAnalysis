@@ -4,6 +4,7 @@ from typing import Optional
 import pandas as pd
 from sqlalchemy import text
 from sklearn.model_selection import TimeSeriesSplit
+from statsmodels.tsa.arima.model import ARIMA
 from shared.db.session import SessionLocal
 from shared.utils.metrics import (
     calculate_returns,
@@ -205,6 +206,28 @@ class DataLoader:
 
         find_asset_for_symbol(contract, self.ticker_id)
         get_timeframe_contract(contract, self.ticker_id, self.resolution)
+
+    def predict_direction(self, steps: int = 1) -> str:
+        """
+        Forecast the next price with ARIMA and compare it with the latest close.
+
+        Returns:
+            'TĂNG' if the forecasted next price is higher than the latest close,
+            otherwise 'GIẢM'.
+        """
+        df = self.load_raw_data(limit=200)
+        if df.empty:
+            raise ValueError(f"No data available for ticker {self.ticker_id}")
+
+        prices = df["close"].astype(float)
+        model = ARIMA(prices.values, order=(1, 1, 1))
+        fitted_model = model.fit()
+        forecast = fitted_model.forecast(steps=steps)
+
+        last_close = float(prices.iloc[-1])
+        forecast_value = float(forecast.iloc[-1]) if hasattr(forecast, "iloc") else float(forecast[-1])
+
+        return "TĂNG" if forecast_value > last_close else "GIẢM"
 
     # ------------------------------------------------------------------
     # Feature engineering
