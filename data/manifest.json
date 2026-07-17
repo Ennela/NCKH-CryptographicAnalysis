@@ -1,0 +1,85 @@
+{
+  "snapshot_name": "ohlcv_full_current",
+  "exported_at": "2026-07-09T14:13:43.280328+00:00",
+  "source": {
+    "database": "stock_crypto_db",
+    "schemas": [
+      "market"
+    ],
+    "tables": [
+      "market.exchange",
+      "market.symbol",
+      "market.ohlcv",
+      "market.ohlcv_raw"
+    ]
+  },
+  "files": {
+    "market_exchange": {
+      "path": "market_exchange.csv.gz",
+      "rows": 2
+    },
+    "market_symbol": {
+      "path": "market_symbol.csv.gz",
+      "rows": 25
+    },
+    "market_ohlcv": {
+      "path": "market_ohlcv.csv.gz",
+      "rows": 192740
+    },
+    "market_ohlcv_raw": {
+      "path": "market_ohlcv_raw.csv.gz",
+      "rows": 192740
+    }
+  },
+  "summary": {
+    "ohlcv": {
+      "row_count": 192740,
+      "min_ts": "2024-05-24 00:00:00+00:00",
+      "max_ts": "2026-07-09 01:00:00+00:00"
+    },
+    "symbols_by_asset_class": [
+      {
+        "asset_class": "crypto",
+        "symbol_count": 10
+      },
+      {
+        "asset_class": "stock",
+        "symbol_count": 15
+      }
+    ],
+    "timeframes": [
+      "1d",
+      "1h"
+    ],
+    "rows_by_asset_timeframe": [
+      {
+        "asset_class": "stock",
+        "timeframe": "1d",
+        "row_count": 7950,
+        "min_ts": "2024-05-24 00:00:00+00:00",
+        "max_ts": "2026-07-08 00:00:00+00:00"
+      },
+      {
+        "asset_class": "crypto",
+        "timeframe": "1h",
+        "row_count": 177400,
+        "min_ts": "2024-06-29 22:00:00+00:00",
+        "max_ts": "2026-07-09 01:00:00+00:00"
+      },
+      {
+        "asset_class": "crypto",
+        "timeframe": "1d",
+        "row_count": 7390,
+        "min_ts": "2024-06-30 07:00:00+00:00",
+        "max_ts": "2026-07-08 07:00:00+00:00"
+      }
+    ]
+  },
+  "checksums": {
+    "market_exchange.csv.gz": "sha256:4c985ba88091302d412ddbb6ee7c7c247e8dc572bbd4d80e8237c4aace8c656e",
+    "market_symbol.csv.gz": "sha256:31c51b2768c7d2fb1bd5042b5c68c918f7c2ef7bff4e444763c369485ccd2fbe",
+    "market_ohlcv.csv.gz": "sha256:0e77e129dee5bb621fd00fb286632c8a85e27b065b0379a9e9c56d44cf750918",
+    "market_ohlcv_raw.csv.gz": "sha256:64abd4d4b3266b463a30335864ee5f5fd4e769f113cb91949ec9fa76bc710cec"
+  },
+  "snapshot_fingerprint": "381cd2ee9054a5728a694f6f1df7b952f70c2f40d8e0664c59e6414ff9c2d6d2"
+}
