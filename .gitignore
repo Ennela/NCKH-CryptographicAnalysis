@@ -41,6 +41,8 @@ active_env/
 !.env.example
 mlruns/
 outputs/
+artifacts/predictions/
+artifacts/metrics/
 results/*.csv
 mlflow.db
 data/raw/
