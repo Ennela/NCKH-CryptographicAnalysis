@@ -35,6 +35,12 @@ SPLIT_NAMES: tuple[str, ...] = ("train", "val", "test")
 REQUIRED_COLUMNS: frozenset[str] = frozenset(
     {"ts", "open", "high", "low", "close", "volume", "next_close", "split"}
 )
+AUDIT_COLUMNS: tuple[str, ...] = (
+    "input_ts",
+    "target_ts",
+    "current_close",
+    "actual_close",
+)
 
 
 def _build_feature_names(
@@ -177,6 +183,19 @@ def _add_lag_and_rolling_features(
     )
 
 
+def _add_target_audit_columns(df: pd.DataFrame) -> None:
+    """Preserve the observed horizon-one timestamps and prices for audit."""
+    grouped = df.groupby("split", sort=False)
+    expected_target = grouped["close"].shift(-1)
+    if not df["next_close"].equals(expected_target):
+        raise ValueError("next_close must equal the next observed close within split.")
+
+    df["input_ts"] = df["ts"]
+    df["target_ts"] = grouped["ts"].shift(-1)
+    df["current_close"] = df["close"]
+    df["actual_close"] = df["next_close"]
+
+
 def _validate_feature_parameters(
     lag_periods: tuple[int, ...],
     rolling_mean_windows: tuple[int, ...],
@@ -239,6 +258,7 @@ def build_xgboost_features(
     )
 
     featured = df.sort_values("ts", kind="mergesort").reset_index(drop=True).copy()
+    _add_target_audit_columns(featured)
     _add_shared_indicators(
         featured,
         volatility_window,
