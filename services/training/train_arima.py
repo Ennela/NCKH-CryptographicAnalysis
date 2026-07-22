@@ -10,7 +10,7 @@ import json
 import logging
 import random
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -30,7 +30,9 @@ logger = logging.getLogger(__name__)
 MODEL_NAME = "arima"
 TARGET_COLUMN = "next_close"
 DEFAULT_SEED = 42
+HORIZON = 1
 STATUS = "preliminary"
+PRE_TEST_STATE_ROLE = "pre_test_deployable"
 RMSE_TOLERANCE = 1e-12
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PREDICTION_ROOT = REPO_ROOT / "artifacts" / "predictions" / MODEL_NAME
@@ -115,6 +117,9 @@ class OneStepForecaster(Protocol):
     def update(self, actual_close: float) -> None:
         """Append one observation that has become available."""
 
+    def snapshot(self) -> OneStepForecaster:
+        """Return an independent serialized snapshot of the current state."""
+
 
 @dataclass(frozen=True)
 class DatasetMetadata:
@@ -151,9 +156,26 @@ class RollingSplitResult:
 class RollingEvaluation:
     """Validation-first and test rolling results from one fitted model."""
 
-    model: OneStepForecaster
+    pre_test_model: OneStepForecaster
+    evaluation_model: OneStepForecaster
     validation: RollingSplitResult
     test: RollingSplitResult
+
+
+@dataclass(frozen=True)
+class ModelStateMetadata:
+    """Auditable boundary metadata for the deployable pre-test artifact."""
+
+    model: str
+    state_role: str
+    observation_count: int
+    history_end_ts: str
+    history_end_value: float
+    order_p: int
+    order_d: int
+    order_q: int
+    horizon: int
+    contains_test_history: bool
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -341,14 +363,113 @@ def run_rolling_evaluation(
         prepared.train_end_close,
         "validation",
     )
+    pre_test_model = model
+    evaluation_model = pre_test_model.snapshot()
+    if evaluation_model is pre_test_model:
+        raise RuntimeError(
+            "ARIMA evaluation model must be independent from pre-test state."
+        )
     test, _, _ = _roll_one_split(
-        model,
+        evaluation_model,
         prepared.test_pairs,
         history_end_ts,
         history_end_close,
         "test",
     )
-    return RollingEvaluation(model=model, validation=validation, test=test)
+    return RollingEvaluation(
+        pre_test_model=pre_test_model,
+        evaluation_model=evaluation_model,
+        validation=validation,
+        test=test,
+    )
+
+
+def build_model_state_metadata(
+    model: ARIMABaseline,
+    history_end_ts: Any,
+    history_end_value: float,
+) -> ModelStateMetadata:
+    """Build and validate metadata for the immutable pre-test artifact."""
+    expected_value = float(history_end_value)
+    if not np.isfinite(expected_value):
+        raise ValueError("ARIMA pre-test history end value must be finite.")
+    if not np.isclose(model.last_observed_value, expected_value, rtol=0.0, atol=0.0):
+        raise ValueError("ARIMA pre-test artifact does not end at the expected value.")
+    order_p, order_d, order_q = model.order
+    return ModelStateMetadata(
+        model=MODEL_NAME,
+        state_role=PRE_TEST_STATE_ROLE,
+        observation_count=model.observation_count,
+        history_end_ts=_utc_timestamp(history_end_ts),
+        history_end_value=expected_value,
+        order_p=order_p,
+        order_d=order_d,
+        order_q=order_q,
+        horizon=HORIZON,
+        contains_test_history=False,
+    )
+
+
+def validate_model_state_metadata(
+    model: ARIMABaseline,
+    state_metadata: ModelStateMetadata,
+) -> None:
+    """Reject metadata that does not describe the fitted pre-test artifact."""
+    expected_identity = (
+        state_metadata.model == MODEL_NAME
+        and state_metadata.state_role == PRE_TEST_STATE_ROLE
+        and state_metadata.horizon == HORIZON
+        and state_metadata.contains_test_history is False
+    )
+    if not expected_identity:
+        raise ValueError("ARIMA model metadata does not identify a pre-test artifact.")
+    if model.order != (
+        state_metadata.order_p,
+        state_metadata.order_d,
+        state_metadata.order_q,
+    ):
+        raise ValueError("ARIMA model metadata order does not match the artifact.")
+    if model.observation_count != state_metadata.observation_count:
+        raise ValueError("ARIMA model metadata observation count does not match.")
+    if not np.isclose(
+        model.last_observed_value,
+        state_metadata.history_end_value,
+        rtol=0.0,
+        atol=0.0,
+    ):
+        raise ValueError("ARIMA model metadata final value does not match.")
+    if _utc_timestamp(state_metadata.history_end_ts) != state_metadata.history_end_ts:
+        raise ValueError("ARIMA model metadata history timestamp is not canonical UTC.")
+
+
+def prepare_pre_test_artifact(
+    prepared: PreparedRollingData,
+    evaluation: RollingEvaluation,
+) -> tuple[ARIMABaseline, ModelStateMetadata]:
+    """Validate both state boundaries and return the deployable pre-test model."""
+    if not isinstance(evaluation.pre_test_model, ARIMABaseline):
+        raise TypeError(
+            "Production ARIMA evaluation returned an unexpected pre-test model."
+        )
+    if not isinstance(evaluation.evaluation_model, ARIMABaseline):
+        raise TypeError("Production ARIMA evaluation returned an unexpected evaluator.")
+
+    expected_pre_test_count = (
+        len(prepared.train_close) + len(prepared.validation_pairs) + 1
+    )
+    expected_post_test_count = expected_pre_test_count + len(prepared.test_pairs) + 1
+    if evaluation.pre_test_model.observation_count != expected_pre_test_count:
+        raise ValueError("ARIMA pre-test artifact observation count is inconsistent.")
+    if evaluation.evaluation_model.observation_count != expected_post_test_count:
+        raise ValueError("ARIMA evaluator must contain the full post-test history.")
+
+    state_metadata = build_model_state_metadata(
+        evaluation.pre_test_model,
+        prepared.validation_pairs["target_ts"].iloc[-1],
+        float(prepared.validation_pairs["actual_close"].iloc[-1]),
+    )
+    validate_model_state_metadata(evaluation.pre_test_model, state_metadata)
+    return evaluation.pre_test_model, state_metadata
 
 
 def _metric_vector(name: str, values: Any) -> np.ndarray:
@@ -575,6 +696,7 @@ def log_training_run(
     seed: int,
     metrics: MetricValues,
     model: ARIMABaseline,
+    state_metadata: ModelStateMetadata,
     validation_steps: int,
     test_steps: int,
 ) -> str:
@@ -584,20 +706,30 @@ def log_training_run(
 
     from services.training.mlflow_utils import init_mlflow
 
+    validate_model_state_metadata(model, state_metadata)
     init_mlflow()
     mlflow.set_experiment(f"{symbol}_{timeframe}_{MODEL_NAME}")
     with mlflow.start_run(run_name=f"{MODEL_NAME}_{symbol}_{timeframe}") as run:
         mlflow.log_params(
             {
-                "order": str(DEFAULT_ARIMA_ORDER),
+                "order": str(model.order),
+                "order_p": state_metadata.order_p,
+                "order_d": state_metadata.order_d,
+                "order_q": state_metadata.order_q,
                 "dataset_version": metadata.dataset_version,
                 "snapshot_name": metadata.snapshot_name,
                 "test_manifest_sha256": manifest_hash,
                 "symbol": symbol,
                 "timeframe": timeframe,
+                "model": state_metadata.model,
                 "target": TARGET_COLUMN,
-                "horizon": 1,
+                "horizon": state_metadata.horizon,
                 "seed": seed,
+                "state_role": state_metadata.state_role,
+                "observation_count": state_metadata.observation_count,
+                "history_end_ts": state_metadata.history_end_ts,
+                "history_end_value": state_metadata.history_end_value,
+                "contains_test_history": state_metadata.contains_test_history,
                 "deterministic": True,
                 "refit_during_rolling": False,
                 "validation_steps": validation_steps,
@@ -605,6 +737,17 @@ def log_training_run(
             }
         )
         mlflow.log_metrics(metrics)
+        mlflow.log_dict(
+            {
+                **asdict(state_metadata),
+                "dataset_version": metadata.dataset_version,
+                "snapshot_name": metadata.snapshot_name,
+                "test_manifest_sha256": manifest_hash,
+                "symbol": symbol,
+                "timeframe": timeframe,
+            },
+            "metadata/pre_test_model.json",
+        )
         mlflow.statsmodels.log_model(
             model.fitted_model,
             artifact_path="model",
@@ -681,8 +824,7 @@ def run_training(args: argparse.Namespace) -> str:
         evaluation.test.predictions,
         manifest["current_close"],
     )
-    if not isinstance(evaluation.model, ARIMABaseline):
-        raise TypeError("Production ARIMA evaluation returned an unexpected model.")
+    pre_test_model, state_metadata = prepare_pre_test_artifact(prepared, evaluation)
     run_id = log_training_run(
         metadata,
         symbol,
@@ -690,7 +832,8 @@ def run_training(args: argparse.Namespace) -> str:
         manifest_hash,
         args.seed,
         metrics,
-        evaluation.model,
+        pre_test_model,
+        state_metadata,
         len(evaluation.validation),
         len(evaluation.test),
     )
