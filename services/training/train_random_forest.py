@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 
 MODEL_NAME = "random_forest"
 TARGET_COLUMN = "next_close"
+HORIZON = 1
 DEFAULT_SEED = 42
 STATUS = "preliminary"
 RMSE_TOLERANCE = 1e-12
@@ -146,7 +147,7 @@ def load_dataset_metadata(
 ) -> DatasetMetadata:
     """Read the locked dataset identity and target contract."""
     payload = json.loads(contract_path.read_text(encoding="utf-8"))
-    if payload.get("target") != {"mode": TARGET_COLUMN, "horizon": 1}:
+    if payload.get("target") != {"mode": TARGET_COLUMN, "horizon": HORIZON}:
         raise ValueError("Random Forest requires target next_close with horizon 1.")
     dataset_version = str(payload.get("dataset_version", ""))
     snapshot_name = str(payload.get("source_snapshot_name", ""))
@@ -173,12 +174,22 @@ def _validate_target_frame(frame: pd.DataFrame, split_name: str) -> None:
         raise ValueError(f"Random Forest {split_name} split label is invalid.")
 
     try:
-        target = np.asarray(frame[TARGET_COLUMN], dtype=np.float64).reshape(-1)
-        actual = np.asarray(frame["actual_close"], dtype=np.float64).reshape(-1)
-        current = np.asarray(frame["current_close"], dtype=np.float64).reshape(-1)
-        close = np.asarray(frame["close"], dtype=np.float64).reshape(-1)
+        target = np.asarray(frame[TARGET_COLUMN], dtype=np.float64)
+        actual = np.asarray(frame["actual_close"], dtype=np.float64)
+        current = np.asarray(frame["current_close"], dtype=np.float64)
+        close = np.asarray(frame["close"], dtype=np.float64)
     except (TypeError, ValueError) as exc:
         raise ValueError("Random Forest price targets must be numeric.") from exc
+    price_vectors = {
+        TARGET_COLUMN: target,
+        "actual_close": actual,
+        "current_close": current,
+        "close": close,
+    }
+    if any(array.ndim != 1 for array in price_vectors.values()):
+        raise ValueError("Random Forest price columns must be one-dimensional.")
+    if any(array.shape != target.shape for array in price_vectors.values()):
+        raise ValueError("Random Forest price columns must have identical shapes.")
     if not np.array_equal(target, actual):
         raise ValueError("Random Forest target source must be next_close.")
     if not np.array_equal(current, close):
@@ -202,7 +213,7 @@ def _prepare_target(frame: pd.DataFrame) -> pd.Series:
         raise ValueError("Random Forest target must be one-dimensional.")
     if not np.isfinite(target).all():
         raise ValueError("Random Forest target contains NaN or Inf.")
-    return pd.Series(target.reshape(-1), name=TARGET_COLUMN)
+    return pd.Series(target, name=TARGET_COLUMN)
 
 
 def prepare_dataset(splits: dict[str, pd.DataFrame]) -> PreparedDataset:
@@ -255,11 +266,63 @@ def _log_metric_vector(name: str, values: np.ndarray) -> None:
 
 def _metric_vector(name: str, values: Any) -> np.ndarray:
     """Convert a metric input to float64 and reject broadcasting-prone shapes."""
-    array = np.asarray(values, dtype=np.float64)
+    raw_array = np.asarray(values)
+    if raw_array.ndim != 1:
+        raise ValueError(f"{name} must be one-dimensional, got shape={raw_array.shape}")
+    if raw_array.size == 0:
+        raise ValueError(f"{name} must not be empty")
+    try:
+        array = np.asarray(raw_array, dtype=np.float64)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must contain numeric values") from exc
     _log_metric_vector(name, array)
-    if array.ndim != 1:
-        raise ValueError(f"{name} must be one-dimensional; got {array.shape}.")
-    return np.asarray(array, dtype=np.float64).reshape(-1)
+    if not np.isfinite(array).all():
+        raise ValueError(f"{name} contains NaN or infinite values")
+    return array
+
+
+def validate_metric_vectors(
+    y_true: Any,
+    y_pred: Any,
+    current_close: Any,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Validate metric vector structure, then return finite float64 arrays."""
+    raw_vectors = {
+        "y_true": np.asarray(y_true),
+        "y_pred": np.asarray(y_pred),
+        "current_close": np.asarray(current_close),
+    }
+    for name, array in raw_vectors.items():
+        if array.ndim != 1:
+            raise ValueError(f"{name} must be one-dimensional, got shape={array.shape}")
+        if array.size == 0:
+            raise ValueError(f"{name} must not be empty")
+
+    expected_shape = raw_vectors["y_true"].shape
+    for name in ("y_pred", "current_close"):
+        actual_shape = raw_vectors[name].shape
+        if actual_shape != expected_shape:
+            raise ValueError(
+                f"y_true and {name} must have identical shapes: "
+                f"{expected_shape} != {actual_shape}"
+            )
+
+    validated_vectors: dict[str, np.ndarray] = {}
+    for name, raw_array in raw_vectors.items():
+        try:
+            array = np.asarray(raw_array, dtype=np.float64)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{name} must contain numeric values") from exc
+        _log_metric_vector(name, array)
+        if not np.isfinite(array).all():
+            raise ValueError(f"{name} contains NaN or infinite values")
+        validated_vectors[name] = array
+
+    return (
+        validated_vectors["y_true"],
+        validated_vectors["y_pred"],
+        validated_vectors["current_close"],
+    )
 
 
 def _validate_prediction_scale(y_true: np.ndarray, y_pred: np.ndarray) -> None:
@@ -343,30 +406,10 @@ def evaluate_metric_vectors(
     current_close: Any,
 ) -> MetricValues:
     """Validate and evaluate raw next-close predictions against the manifest."""
-    raw_y_true = np.asarray(y_true, dtype=np.float64)
-    raw_y_pred = np.asarray(y_pred, dtype=np.float64)
-    raw_current_close = np.asarray(current_close, dtype=np.float64)
-    _log_metric_vector("y_true", raw_y_true)
-    _log_metric_vector("y_pred", raw_y_pred)
-    _log_metric_vector("current_close", raw_current_close)
-    if any(array.ndim != 1 for array in (raw_y_true, raw_y_pred, raw_current_close)):
-        raise ValueError(
-            "Metric inputs must be one-dimensional to prevent broadcasting."
-        )
-
-    y_true_array = np.asarray(y_true, dtype=np.float64).reshape(-1)
-    y_pred_array = np.asarray(y_pred, dtype=np.float64).reshape(-1)
-    current_array = np.asarray(current_close, dtype=np.float64).reshape(-1)
-    assert y_true_array.shape == y_pred_array.shape, (
-        "y_true and y_pred shapes must match."
-    )
-    assert y_true_array.shape == current_array.shape, (
-        "y_true and current_close shapes must match."
-    )
-    assert np.isfinite(y_true_array).all(), "y_true must contain only finite values."
-    assert np.isfinite(y_pred_array).all(), "y_pred must contain only finite values."
-    assert np.isfinite(current_array).all(), (
-        "current_close must contain only finite values."
+    y_true_array, y_pred_array, current_array = validate_metric_vectors(
+        y_true,
+        y_pred,
+        current_close,
     )
     _validate_prediction_scale(y_true_array, y_pred_array)
     return _calculate_metric_summary(y_true_array, y_pred_array, current_array)
@@ -531,6 +574,8 @@ def log_training_run(
         "test_manifest_sha256": manifest_hash,
         "symbol": symbol,
         "timeframe": timeframe,
+        "model": MODEL_NAME,
+        "horizon": HORIZON,
         "seed": seed,
         "feature_list": ",".join(FEATURE_LIST),
         "target": TARGET_COLUMN,
