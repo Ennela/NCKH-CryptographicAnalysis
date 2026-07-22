@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import inspect
+import json
 import random
 import sys
 from contextlib import contextmanager
@@ -13,6 +14,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Iterator
 
+import joblib
 import numpy as np
 import pandas as pd
 import pytest
@@ -86,6 +88,13 @@ def _small_model(config: train_gru.GRUTrainingConfig) -> GRUForecaster:
     )
 
 
+class LastFeatureModel(torch.nn.Module):
+    """Return a row-specific marker for ordered batching tests."""
+
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        return inputs[:, -1, 0]
+
+
 def _valid_metrics() -> dict[str, float]:
     return {
         "mae": 1.0,
@@ -98,6 +107,18 @@ def _valid_metrics() -> dict[str, float]:
         "naive_directional_accuracy": 0.0,
         "improvement_vs_naive_rmse_pct": 33.333333333,
     }
+
+
+def _read_logged_artifact(path: Path, loaded: dict[str, Any]) -> None:
+    """Load a temporary artifact before its source directory is removed."""
+    if path.name == "gru_state_dict.pt":
+        loaded["state_dict"] = torch.load(path, map_location="cpu", weights_only=True)
+    elif path.name == "feature_scaler.joblib":
+        loaded["feature_scaler"] = joblib.load(path)
+    elif path.name == "target_scaler.joblib":
+        loaded["target_scaler"] = joblib.load(path)
+    elif path.name == "reproducibility.json":
+        loaded["metadata"] = json.loads(path.read_text(encoding="utf-8"))
 
 
 def test_gru_forward_returns_one_value_per_sequence(
@@ -133,6 +154,46 @@ def test_seed_is_called_before_model_and_dataloaders() -> None:
     model_position = source.index("GRUForecaster")
     assert seed_position < loader_position
     assert seed_position < model_position
+
+
+def test_short_cpu_training_is_reproducible(
+    config: train_gru.GRUTrainingConfig,
+    sequences: train_gru.PreparedSequences,
+) -> None:
+    short_config = replace(config, max_epochs=2, patience=2, batch_size=16)
+
+    def train_once() -> tuple[
+        train_gru.TrainingResult,
+        dict[str, torch.Tensor],
+        np.ndarray,
+    ]:
+        train_gru.set_random_seed(42)
+        train_loader = train_gru.create_data_loader(sequences.train, 16, 42)
+        validation_loader = train_gru.create_data_loader(sequences.val, 16, 42)
+        model = _small_model(short_config)
+        result = train_gru.train_with_early_stopping(
+            model,
+            train_loader,
+            validation_loader,
+            short_config,
+            torch.device("cpu"),
+        )
+        state = {
+            name: value.detach().clone() for name, value in model.state_dict().items()
+        }
+        predictions = train_gru.predict_scaled(
+            model, sequences.test, 16, torch.device("cpu")
+        )
+        return result, state, predictions
+
+    first_result, first_state, first_predictions = train_once()
+    second_result, second_state, second_predictions = train_once()
+    assert first_result == second_result
+    for name in first_state:
+        torch.testing.assert_close(
+            first_state[name], second_state[name], rtol=0, atol=0
+        )
+    np.testing.assert_allclose(first_predictions, second_predictions, rtol=0, atol=0)
 
 
 def test_scalers_fit_train_only(
@@ -242,6 +303,52 @@ def test_early_stopping_uses_validation_only(
     )
 
 
+def test_early_stopping_restores_best_validation_checkpoint(
+    monkeypatch: pytest.MonkeyPatch,
+    config: train_gru.GRUTrainingConfig,
+    sequences: train_gru.PreparedSequences,
+) -> None:
+    epoch = 0
+    validation_losses = iter([3.0, 1.0, 2.0])
+
+    def fake_train_epoch(
+        model: GRUForecaster,
+        loader: Any,
+        criterion: Any,
+        optimizer: Any,
+        device: torch.device,
+    ) -> None:
+        nonlocal epoch
+        epoch += 1
+        with torch.no_grad():
+            for parameter in model.parameters():
+                parameter.fill_(float(epoch))
+
+    def fake_validation_loss(
+        model: GRUForecaster,
+        loader: Any,
+        criterion: Any,
+        device: torch.device,
+    ) -> float:
+        return next(validation_losses)
+
+    monkeypatch.setattr(train_gru, "_train_one_epoch", fake_train_epoch)
+    monkeypatch.setattr(train_gru, "_mean_loader_loss", fake_validation_loss)
+    train_loader = train_gru.create_data_loader(sequences.train, 16, 42)
+    validation_loader = train_gru.create_data_loader(sequences.val, 16, 42)
+    model = _small_model(config)
+    result = train_gru.train_with_early_stopping(
+        model,
+        train_loader,
+        validation_loader,
+        replace(config, max_epochs=3, patience=3),
+        torch.device("cpu"),
+    )
+    assert result.best_epoch == 2
+    for parameter in model.parameters():
+        torch.testing.assert_close(parameter, torch.full_like(parameter, 2.0))
+
+
 def test_scalers_are_not_refit_during_early_stopping() -> None:
     source = inspect.getsource(train_gru.train_with_early_stopping)
     assert "scaler" not in source.lower()
@@ -281,6 +388,35 @@ def test_predictions_are_finite_and_shape_valid(
     )
     assert predictions.shape == (len(sequences.test),)
     assert np.isfinite(predictions).all()
+
+
+def test_prediction_batches_preserve_row_identity(
+    sequences: train_gru.PreparedSequences,
+    metadata: train_gru.DatasetMetadata,
+) -> None:
+    batch_size = 3
+    assert len(sequences.test) % batch_size != 0
+    predictions = train_gru.predict_scaled(
+        LastFeatureModel(), sequences.test, batch_size, torch.device("cpu")
+    )
+    expected_predictions = sequences.test.X[:, -1, 0].astype(np.float64)
+    manifest = train_gru.build_test_manifest(sequences.test, metadata, "ACB", "1d")
+    output = train_gru.build_prediction_frame(
+        manifest, predictions, "a" * 64, "run-1", 42
+    )
+    np.testing.assert_array_equal(output.index, np.arange(len(sequences.test)))
+    np.testing.assert_array_equal(output["predicted_close"], expected_predictions)
+    np.testing.assert_array_equal(
+        output["input_ts"],
+        [train_gru._utc_timestamp(value) for value in sequences.test.input_ts],
+    )
+    np.testing.assert_array_equal(
+        output["target_ts"],
+        [train_gru._utc_timestamp(value) for value in sequences.test.target_ts],
+    )
+    np.testing.assert_array_equal(output["current_close"], sequences.test.current_close)
+    np.testing.assert_array_equal(output["actual_close"], sequences.test.actual_close)
+    assert output["target_ts"].is_unique
 
 
 def test_metrics_are_finite_and_rmse_not_below_mae() -> None:
@@ -355,6 +491,10 @@ def test_prediction_count_matches_manifest(
     assert len(output) == len(manifest) == len(sequences.test)
     for column in ("input_ts", "target_ts", "current_close", "actual_close"):
         np.testing.assert_array_equal(output[column], manifest[column])
+    assert output["model"].eq("gru").all()
+    assert output["split"].eq("test").all()
+    assert output["run_id"].eq("run-1").all()
+    assert output["seed"].eq(42).all()
     with pytest.raises(ValueError, match="prediction count"):
         train_gru.build_prediction_frame(
             manifest, predictions[:-1], "a" * 64, "run-1", 42
@@ -413,6 +553,7 @@ def test_model_state_scalers_and_outputs_share_mlflow_run(
     sequences: train_gru.PreparedSequences,
 ) -> None:
     logged: list[tuple[str, str]] = []
+    loaded: dict[str, Any] = {}
 
     @contextmanager
     def fake_start_run(run_id: str) -> Iterator[None]:
@@ -422,6 +563,7 @@ def test_model_state_scalers_and_outputs_share_mlflow_run(
     def fake_log_artifact(path: str, artifact_path: str) -> None:
         assert Path(path).is_file()
         logged.append((Path(path).name, artifact_path))
+        _read_logged_artifact(Path(path), loaded)
 
     fake_mlflow = SimpleNamespace(
         start_run=fake_start_run,
@@ -432,9 +574,10 @@ def test_model_state_scalers_and_outputs_share_mlflow_run(
     summary_path = tmp_path / "summary.csv"
     prediction_path.write_text("prediction\n", encoding="utf-8")
     summary_path.write_text("summary\n", encoding="utf-8")
+    model = _small_model(config)
     train_gru._log_run_artifacts(
         "run-1",
-        _small_model(config),
+        model,
         sequences.feature_scaler,
         sequences.target_scaler,
         config,
@@ -447,6 +590,67 @@ def test_model_state_scalers_and_outputs_share_mlflow_run(
     assert ("reproducibility.json", "metadata") in logged
     assert ("prediction.csv", "predictions") in logged
     assert ("summary.csv", "metrics") in logged
+    restored_model = _small_model(config)
+    restored_model.load_state_dict(loaded["state_dict"], strict=True)
+    for name, value in model.state_dict().items():
+        torch.testing.assert_close(value, restored_model.state_dict()[name])
+    assert loaded["feature_scaler"].n_features_in_ == len(train_gru.FEATURE_LIST)
+    assert loaded["target_scaler"].n_features_in_ == 1
+    assert loaded["metadata"]["config"]["sequence_length"] == config.sequence_length
+
+
+def test_mlflow_contract_logs_required_params_metrics_and_model(
+    monkeypatch: pytest.MonkeyPatch,
+    config: train_gru.GRUTrainingConfig,
+    metadata: train_gru.DatasetMetadata,
+) -> None:
+    from services.training import mlflow_utils
+
+    captured: dict[str, Any] = {}
+
+    def fake_log_experiment_run(**kwargs: Any) -> str:
+        captured.update(kwargs)
+        return "run-1"
+
+    monkeypatch.setattr(mlflow_utils, "log_experiment_run", fake_log_experiment_run)
+    model = _small_model(config)
+    metrics = _valid_metrics()
+    run_id = train_gru.log_training_run(
+        metadata,
+        "ACB",
+        "1d",
+        "a" * 64,
+        42,
+        metrics,
+        model,
+        config,
+        train_gru.TrainingResult(2, 0.25, 3),
+        torch.device("cpu"),
+    )
+    required_params = {
+        "dataset_version",
+        "snapshot_name",
+        "test_manifest_sha256",
+        "symbol",
+        "timeframe",
+        "model",
+        "target",
+        "horizon",
+        "seed",
+        "sequence_length",
+        "batch_size",
+        "learning_rate",
+        "patience",
+    }
+    assert run_id == "run-1"
+    assert required_params.issubset(captured["params"])
+    assert captured["params"]["model"] == "gru"
+    assert captured["params"]["target"] == "next_close"
+    assert captured["params"]["horizon"] == 1
+    assert captured["params"]["seed"] == 42
+    assert captured["metrics"] == metrics
+    assert captured["model"] is model
+    assert captured["model_name_in_registry"] == "ACB_1d_gru"
 
 
 def test_pipeline_contains_only_pytorch_gru() -> None:
