@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 
 MODEL_NAME = "gru"
 TARGET_COLUMN = "next_close"
+HORIZON = 1
 DEFAULT_SEED = 42
 STATUS = "preliminary"
 RMSE_TOLERANCE = 1e-12
@@ -205,7 +206,7 @@ def load_dataset_metadata(
 ) -> DatasetMetadata:
     """Read and validate the locked next-close dataset identity."""
     payload = json.loads(contract_path.read_text(encoding="utf-8"))
-    if payload.get("target") != {"mode": TARGET_COLUMN, "horizon": 1}:
+    if payload.get("target") != {"mode": TARGET_COLUMN, "horizon": HORIZON}:
         raise ValueError("GRU requires target next_close with horizon 1.")
     dataset_version = str(payload.get("dataset_version", ""))
     snapshot_name = str(payload.get("source_snapshot_name", ""))
@@ -727,9 +728,11 @@ def log_training_run(
         "test_manifest_sha256": manifest_hash,
         "symbol": symbol,
         "timeframe": timeframe,
+        "model": MODEL_NAME,
         "seed": seed,
         "feature_list": ",".join(FEATURE_LIST),
         "target": TARGET_COLUMN,
+        "horizon": HORIZON,
         "device": str(device),
         "deterministic_algorithms": True,
     }
