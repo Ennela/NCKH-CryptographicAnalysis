@@ -5,6 +5,10 @@ from __future__ import annotations
 import csv
 import inspect
 import logging
+import subprocess
+import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -177,26 +181,88 @@ def test_equal_shape_vectors_produce_metrics() -> None:
     assert metrics["naive_rmse"] >= metrics["naive_mae"]
 
 
-def test_broadcasting_prone_shapes_are_rejected() -> None:
-    y_true = np.array([100.0, 102.0, 101.0])
-    y_pred = np.array([[100.5], [101.5], [101.2]])
-    current_close = np.array([99.0, 101.0, 102.0])
-    with pytest.raises(ValueError, match="one-dimensional"):
-        train_random_forest.evaluate_metric_vectors(y_true, y_pred, current_close)
+def test_metric_recomputation_matches_expected_values() -> None:
+    y_true = np.array([100.0, 102.0, 101.0], dtype=np.float64)
+    y_pred = np.array([100.5, 101.5, 101.2], dtype=np.float64)
+    current_close = np.array([99.0, 101.0, 102.0], dtype=np.float64)
+    metrics = train_random_forest.evaluate_metric_vectors(
+        y_true,
+        y_pred,
+        current_close,
+    )
+
+    errors = y_true - y_pred
+    naive_errors = y_true - current_close
+    expected = {
+        "mae": np.mean(np.abs(errors)),
+        "rmse": np.sqrt(np.mean(np.square(errors))),
+        "mape_pct": np.mean(np.abs(errors / y_true)) * 100.0,
+        "directional_accuracy": np.mean(
+            np.sign(y_pred - current_close) == np.sign(y_true - current_close)
+        ),
+        "naive_mae": np.mean(np.abs(naive_errors)),
+        "naive_rmse": np.sqrt(np.mean(np.square(naive_errors))),
+        "naive_mape_pct": np.mean(np.abs(naive_errors / y_true)) * 100.0,
+        "naive_directional_accuracy": np.mean(
+            np.sign(current_close - current_close) == np.sign(y_true - current_close)
+        ),
+    }
+    expected["improvement_vs_naive_rmse_pct"] = (
+        (expected["naive_rmse"] - expected["rmse"]) / expected["naive_rmse"] * 100.0
+    )
+    np.testing.assert_allclose(
+        [metrics[name] for name in expected],
+        [expected[name] for name in expected],
+        rtol=1e-12,
+        atol=1e-12,
+    )
 
 
-def test_mismatched_vector_lengths_are_rejected() -> None:
-    with pytest.raises(AssertionError, match="shapes must match"):
+@pytest.mark.parametrize("argument", ["y_true", "y_pred", "current_close"])
+def test_multidimensional_metric_vectors_are_rejected(argument: str) -> None:
+    values = {
+        "y_true": np.array([100.0, 102.0, 101.0]),
+        "y_pred": np.array([100.5, 101.5, 101.2]),
+        "current_close": np.array([99.0, 101.0, 102.0]),
+    }
+    values[argument] = values[argument].reshape(-1, 1)
+    with pytest.raises(ValueError, match=rf"{argument} must be one-dimensional"):
+        train_random_forest.evaluate_metric_vectors(**values)
+
+
+@pytest.mark.parametrize("argument", ["y_pred", "current_close"])
+def test_mismatched_vector_lengths_are_rejected(argument: str) -> None:
+    values = {
+        "y_true": np.array([100.0, 101.0]),
+        "y_pred": np.array([100.5, 101.5]),
+        "current_close": np.array([99.0, 100.0]),
+    }
+    values[argument] = np.array([100.5])
+    with pytest.raises(ValueError, match=rf"y_true and {argument}.*identical shapes"):
+        train_random_forest.evaluate_metric_vectors(**values)
+
+
+@pytest.mark.parametrize("argument", ["y_true", "y_pred", "current_close"])
+def test_empty_metric_vectors_are_rejected(argument: str) -> None:
+    values = {
+        "y_true": np.array([100.0, 101.0]),
+        "y_pred": np.array([100.5, 101.5]),
+        "current_close": np.array([99.0, 100.0]),
+    }
+    values[argument] = np.array([])
+    with pytest.raises(ValueError, match=rf"{argument} must not be empty"):
         train_random_forest.evaluate_metric_vectors(
-            np.array([100.0, 101.0]),
-            np.array([100.5]),
-            np.array([99.0, 100.0]),
+            **values,
         )
 
 
 @pytest.mark.parametrize(
     ("argument", "bad_value"),
-    [("y_true", np.nan), ("y_pred", np.inf), ("current_close", -np.inf)],
+    [
+        (argument, bad_value)
+        for argument in ("y_true", "y_pred", "current_close")
+        for bad_value in (np.nan, np.inf, -np.inf)
+    ],
 )
 def test_nan_and_inf_are_rejected(argument: str, bad_value: float) -> None:
     values = {
@@ -205,8 +271,59 @@ def test_nan_and_inf_are_rejected(argument: str, bad_value: float) -> None:
         "current_close": np.array([99.0, 101.0]),
     }
     values[argument][1] = bad_value
-    with pytest.raises(AssertionError, match="finite"):
+    with pytest.raises(ValueError, match=rf"{argument} contains NaN or infinite"):
         train_random_forest.evaluate_metric_vectors(**values)
+
+
+def test_integer_metric_vectors_are_converted_to_float64() -> None:
+    vectors = train_random_forest.validate_metric_vectors(
+        np.array([100, 102, 101], dtype=np.int64),
+        np.array([101, 101, 102], dtype=np.int32),
+        np.array([99, 101, 100], dtype=np.int16),
+    )
+    for vector in vectors:
+        if vector.dtype != np.float64:
+            pytest.fail(f"Expected float64 metric vector, got {vector.dtype}")
+
+
+def test_metric_validation_survives_python_optimization_mode() -> None:
+    validation_script = """
+import numpy as np
+from services.training.train_random_forest import evaluate_metric_vectors
+
+valid = (
+    np.array([100.0, 101.0]),
+    np.array([100.5, 101.5]),
+    np.array([99.0, 100.0]),
+)
+invalid_cases = {
+    "multidimensional": (valid[0].reshape(-1, 1), valid[1], valid[2]),
+    "mismatched": (valid[0], np.array([100.5]), valid[2]),
+    "empty": (np.array([]), np.array([]), np.array([])),
+    "nan": (np.array([100.0, np.nan]), valid[1], valid[2]),
+    "positive_infinity": (valid[0], np.array([100.5, np.inf]), valid[2]),
+    "negative_infinity": (valid[0], valid[1], np.array([99.0, -np.inf])),
+}
+for name, vectors in invalid_cases.items():
+    try:
+        evaluate_metric_vectors(*vectors)
+    except ValueError:
+        continue
+    raise RuntimeError(f"optimization mode accepted invalid case: {name}")
+"""
+    completed = subprocess.run(
+        [sys.executable, "-O", "-c", validation_script],
+        cwd=Path(__file__).resolve().parents[3],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        pytest.fail(
+            "Optimized validation subprocess failed:\n"
+            f"stdout:\n{completed.stdout}\n"
+            f"stderr:\n{completed.stderr}"
+        )
 
 
 def test_prediction_order_of_magnitude_is_checked() -> None:
@@ -279,11 +396,39 @@ def test_prediction_matches_test_manifest(
     output = train_random_forest.build_prediction_frame(
         manifest, predictions, manifest_hash, "run-123", 42
     )
-    assert tuple(output.columns) == train_random_forest.PREDICTION_FIELDNAMES
-    assert len(output) == len(manifest)
+    if tuple(output.columns) != train_random_forest.PREDICTION_FIELDNAMES:
+        pytest.fail(f"Unexpected prediction schema: {tuple(output.columns)}")
+    if len(output) != len(manifest):
+        pytest.fail("Prediction row count does not match the canonical manifest")
     for column in ("input_ts", "target_ts", "current_close", "actual_close"):
         np.testing.assert_array_equal(output[column], manifest[column])
     np.testing.assert_array_equal(output["predicted_close"], predictions)
+    expected_constants = {
+        "dataset_version": metadata.dataset_version,
+        "snapshot_name": metadata.snapshot_name,
+        "test_manifest_sha256": manifest_hash,
+        "symbol": "ACB",
+        "timeframe": "1d",
+        "model": "random_forest",
+        "split": "test",
+        "run_id": "run-123",
+        "seed": 42,
+    }
+    for column, expected_value in expected_constants.items():
+        if not output[column].eq(expected_value).all():
+            pytest.fail(f"Prediction column {column} does not equal {expected_value!r}")
+    if not output["target_ts"].is_monotonic_increasing:
+        pytest.fail("Prediction target timestamps are not increasing")
+    if output["target_ts"].duplicated().any():
+        pytest.fail("Prediction output contains duplicate targets")
+    if not output["input_ts"].lt(output["target_ts"]).all():
+        pytest.fail("Prediction input timestamps must precede target timestamps")
+    if not np.isfinite(
+        output[["current_close", "actual_close", "predicted_close"]].to_numpy(
+            dtype=np.float64
+        )
+    ).all():
+        pytest.fail("Prediction output contains non-finite prices")
 
 
 def test_prediction_count_must_equal_manifest(
@@ -363,6 +508,228 @@ def test_protocol_csv_does_not_overwrite_existing_run(tmp_path: Path) -> None:
     train_random_forest.write_protocol_csv(frame, path, ("a", "b"))
     with pytest.raises(FileExistsError):
         train_random_forest.write_protocol_csv(frame, path, ("a", "b"))
+
+
+def test_mlflow_params_metrics_and_model_contract(
+    monkeypatch: pytest.MonkeyPatch,
+    metadata: train_random_forest.DatasetMetadata,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_log_experiment_run(**kwargs: Any) -> str:
+        captured.update(kwargs)
+        return "run-123"
+
+    monkeypatch.setattr(
+        "services.training.mlflow_utils.log_experiment_run",
+        fake_log_experiment_run,
+    )
+    model = RandomForestModelWrapper(_model_params(seed=42))
+    metrics = _valid_metrics()
+    run_id = train_random_forest.log_training_run(
+        metadata,
+        "ACB",
+        "1d",
+        "a" * 64,
+        42,
+        metrics,
+        model,
+    )
+
+    if run_id != "run-123":
+        pytest.fail(f"Unexpected MLflow run ID: {run_id}")
+    required_params = {
+        "dataset_version": "group_dataset_v1",
+        "snapshot_name": "ohlcv_full_current",
+        "test_manifest_sha256": "a" * 64,
+        "symbol": "ACB",
+        "timeframe": "1d",
+        "target": "next_close",
+        "horizon": 1,
+        "seed": 42,
+        "model": "random_forest",
+    }
+    for name, expected_value in required_params.items():
+        actual_value = captured["params"].get(name)
+        if actual_value != expected_value:
+            pytest.fail(
+                f"MLflow param {name}={actual_value!r}, expected {expected_value!r}"
+            )
+    if captured["metrics"] != metrics:
+        pytest.fail("MLflow metrics do not match the evaluated metric summary")
+    if captured["model"] is not model.model:
+        pytest.fail("MLflow did not receive the Random Forest estimator artifact")
+    if captured["model_name_in_registry"] != "ACB_1d_random_forest":
+        pytest.fail("Unexpected MLflow registered model name")
+
+
+def test_mlflow_csv_artifacts_use_the_originating_run_id(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import mlflow
+
+    started_run_ids: list[str] = []
+    logged_artifacts: list[tuple[str, str]] = []
+
+    @contextmanager
+    def fake_start_run(*, run_id: str) -> Iterator[None]:
+        started_run_ids.append(run_id)
+        yield
+
+    def fake_log_artifact(local_path: str, artifact_path: str) -> None:
+        logged_artifacts.append((local_path, artifact_path))
+
+    monkeypatch.setattr(mlflow, "start_run", fake_start_run)
+    monkeypatch.setattr(mlflow, "log_artifact", fake_log_artifact)
+    prediction_path = tmp_path / "prediction.csv"
+    summary_path = tmp_path / "summary.csv"
+    prediction_path.write_text("prediction", encoding="utf-8")
+    summary_path.write_text("summary", encoding="utf-8")
+
+    train_random_forest._log_csv_artifacts(
+        "run-123",
+        prediction_path,
+        summary_path,
+    )
+
+    if started_run_ids != ["run-123"]:
+        pytest.fail(f"Artifacts used unexpected run IDs: {started_run_ids}")
+    expected_artifacts = [
+        (str(prediction_path), "predictions"),
+        (str(summary_path), "metrics"),
+    ]
+    if logged_artifacts != expected_artifacts:
+        pytest.fail(f"Unexpected MLflow artifact calls: {logged_artifacts}")
+
+
+def test_training_keeps_mlflow_csv_and_artifact_run_ids_consistent(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    ohlcv_frame: pd.DataFrame,
+    feature_splits: dict[str, pd.DataFrame],
+    metadata: train_random_forest.DatasetMetadata,
+) -> None:
+    expected_run_id = "run-consistency-123"
+    expected_predictions = (
+        feature_splits["test"]["actual_close"].to_numpy(dtype=np.float64) + 0.25
+    )
+    mlflow_call: dict[str, Any] = {}
+    artifact_call: dict[str, Any] = {}
+
+    class StubModel:
+        def predict(self, features: pd.DataFrame) -> np.ndarray:
+            if len(features) != len(expected_predictions):
+                pytest.fail("Stub prediction count does not match test features")
+            return expected_predictions.copy()
+
+    def fake_assert_locked_dataset() -> None:
+        return None
+
+    def fake_load_dataset_metadata() -> train_random_forest.DatasetMetadata:
+        return metadata
+
+    def fake_load_full(ticker: str, timeframe: str) -> pd.DataFrame:
+        if (ticker, timeframe) != ("ACB", "1d"):
+            pytest.fail("Training did not request the expected locked series")
+        return ohlcv_frame.copy()
+
+    def fake_train_model(
+        data: train_random_forest.PreparedDataset,
+        seed: int,
+    ) -> StubModel:
+        if seed != 42 or len(data.X_test) != len(expected_predictions):
+            pytest.fail("Training received an unexpected seed or test split")
+        return StubModel()
+
+    def fake_log_training_run(
+        run_metadata: train_random_forest.DatasetMetadata,
+        symbol: str,
+        timeframe: str,
+        manifest_hash: str,
+        seed: int,
+        metrics: train_random_forest.MetricValues,
+        model: Any,
+    ) -> str:
+        mlflow_call.update(
+            metadata=run_metadata,
+            symbol=symbol,
+            timeframe=timeframe,
+            manifest_hash=manifest_hash,
+            seed=seed,
+            metrics=dict(metrics),
+            model=model,
+        )
+        return expected_run_id
+
+    def fake_log_csv_artifacts(
+        run_id: str,
+        prediction_path: Path,
+        summary_path: Path,
+    ) -> None:
+        artifact_call.update(
+            run_id=run_id,
+            prediction_path=prediction_path,
+            summary_path=summary_path,
+        )
+
+    monkeypatch.setattr(
+        train_random_forest,
+        "assert_locked_dataset",
+        fake_assert_locked_dataset,
+    )
+    monkeypatch.setattr(
+        train_random_forest,
+        "load_dataset_metadata",
+        fake_load_dataset_metadata,
+    )
+    monkeypatch.setattr(train_random_forest, "load_full", fake_load_full)
+    monkeypatch.setattr(train_random_forest, "train_model", fake_train_model)
+    monkeypatch.setattr(
+        train_random_forest,
+        "log_training_run",
+        fake_log_training_run,
+    )
+    monkeypatch.setattr(
+        train_random_forest,
+        "_log_csv_artifacts",
+        fake_log_csv_artifacts,
+    )
+    monkeypatch.setattr(
+        train_random_forest,
+        "PREDICTION_ROOT",
+        tmp_path / "predictions",
+    )
+    monkeypatch.setattr(
+        train_random_forest,
+        "SUMMARY_ROOT",
+        tmp_path / "metrics",
+    )
+
+    args = train_random_forest.parse_args(
+        ["--ticker", "ACB", "--timeframe", "1d", "--seed", "42"]
+    )
+    returned_run_id = train_random_forest.run_training(args)
+    if returned_run_id != expected_run_id:
+        pytest.fail(f"Training returned unexpected run ID: {returned_run_id}")
+
+    prediction_path = artifact_call["prediction_path"]
+    summary_path = artifact_call["summary_path"]
+    prediction_frame = pd.read_csv(prediction_path)
+    summary_frame = pd.read_csv(summary_path)
+    if artifact_call["run_id"] != expected_run_id:
+        pytest.fail("MLflow CSV artifacts were attached to a different run")
+    if not prediction_frame["run_id"].eq(expected_run_id).all():
+        pytest.fail("Prediction CSV contains an inconsistent run ID")
+    if not summary_frame["run_id"].eq(expected_run_id).all():
+        pytest.fail("Summary CSV contains an inconsistent run ID")
+    for metric_name, expected_value in mlflow_call["metrics"].items():
+        np.testing.assert_allclose(
+            summary_frame.loc[0, metric_name],
+            expected_value,
+            rtol=1e-12,
+            atol=1e-12,
+        )
 
 
 def test_random_forest_model_save_load_roundtrip(tmp_path: Path) -> None:
