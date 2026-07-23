@@ -22,8 +22,8 @@ from decimal import Decimal
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
-from shared.db.session import SessionLocal
-from shared.db.repositories.market_repo import (
+from shared.db.session import SessionLocal  # noqa: E402
+from shared.db.repositories.market_repo import (  # noqa: E402
     ensure_exchange,
     ensure_symbol,
     upsert_ohlcv_raw,
@@ -32,36 +32,38 @@ from shared.db.repositories.market_repo import (
     update_job,
     record_dq_check,
 )
-from services.ingestion.adapters.vnstock_adapter import VNStockAdapter
+from services.ingestion.adapters.vnstock_adapter import VNStockAdapter  # noqa: E402
 
 # Setup logging with UTF-8 handler
 logger = logging.getLogger(__name__)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(
-        io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-    )],
+    handlers=[
+        logging.StreamHandler(
+            io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+        )
+    ],
 )
 
 DAYS = 730  # 2 năm
 
 STOCK_SYMBOLS: list[str] = [
-    "FPT",   # Công nghệ
-    "VCB",   # Ngân hàng
-    "MSN",   # Tiêu dùng (Masan)
-    "VNM",   # Sữa (Vinamilk)
-    "HPG",   # Thép (Hòa Phát)
-    "TCB",   # Ngân hàng (Techcombank)
-    "MBB",   # Ngân hàng (MB)
-    "VIC",   # Bất động sản (Vingroup)
-    "VHM",   # Bất động sản (Vinhomes)
-    "SSI",   # Chứng khoán
-    "GAS",   # Năng lượng (PV Gas)
-    "PLX",   # Dầu khí (Petrolimex)
-    "SAB",   # Bia (Sabeco)
-    "MWG",   # Bán lẻ (Thế Giới Di Động)
-    "ACB",   # Ngân hàng (Á Châu)
+    "FPT",  # Công nghệ
+    "VCB",  # Ngân hàng
+    "MSN",  # Tiêu dùng (Masan)
+    "VNM",  # Sữa (Vinamilk)
+    "HPG",  # Thép (Hòa Phát)
+    "TCB",  # Ngân hàng (Techcombank)
+    "MBB",  # Ngân hàng (MB)
+    "VIC",  # Bất động sản (Vingroup)
+    "VHM",  # Bất động sản (Vinhomes)
+    "SSI",  # Chứng khoán
+    "GAS",  # Năng lượng (PV Gas)
+    "PLX",  # Dầu khí (Petrolimex)
+    "SAB",  # Bia (Sabeco)
+    "MWG",  # Bán lẻ (Thế Giới Di Động)
+    "ACB",  # Ngân hàng (Á Châu)
 ]
 
 
@@ -74,8 +76,12 @@ def backfill_stock(db, adapter: VNStockAdapter, symbol: str, days: int) -> dict:
     symbol_id = ensure_symbol(db, exchange_id, symbol, "stock", "vnstock")
 
     job_id = log_job(
-        db, "ingest", f"backfill_stock_{symbol}_{resolution}",
-        "running", symbol_id=symbol_id, timeframe=resolution,
+        db,
+        "ingest",
+        f"backfill_stock_{symbol}_{resolution}",
+        "running",
+        symbol_id=symbol_id,
+        timeframe=resolution,
     )
     db.commit()
 
@@ -96,16 +102,18 @@ def backfill_stock(db, adapter: VNStockAdapter, symbol: str, days: int) -> dict:
 
     rows = []
     for c in candles:
-        rows.append({
-            "symbol_id": symbol_id,
-            "timeframe": resolution,
-            "ts": c.timestamp,
-            "open": Decimal(str(c.open)),
-            "high": Decimal(str(c.high)),
-            "low": Decimal(str(c.low)),
-            "close": Decimal(str(c.close)),
-            "volume": Decimal(str(c.volume)),
-        })
+        rows.append(
+            {
+                "symbol_id": symbol_id,
+                "timeframe": resolution,
+                "ts": c.timestamp,
+                "open": Decimal(str(c.open)),
+                "high": Decimal(str(c.high)),
+                "low": Decimal(str(c.low)),
+                "close": Decimal(str(c.close)),
+                "volume": Decimal(str(c.volume)),
+            }
+        )
 
     raw_rows = [{**r, "source": "vnstock", "raw_payload": None} for r in rows]
     upsert_ohlcv_raw(db, raw_rows)
@@ -113,8 +121,11 @@ def backfill_stock(db, adapter: VNStockAdapter, symbol: str, days: int) -> dict:
 
     filtered_out = len(rows) - affected
     record_dq_check(
-        db=db, symbol_id=symbol_id, timeframe=resolution,
-        check_name="high_low_check", passed=(filtered_out == 0),
+        db=db,
+        symbol_id=symbol_id,
+        timeframe=resolution,
+        check_name="high_low_check",
+        passed=(filtered_out == 0),
         ts_start=min(r["ts"] for r in rows),
         ts_end=max(r["ts"] for r in rows),
         detail={"total_rows": len(rows), "filtered_rows": filtered_out},
@@ -139,7 +150,10 @@ def main() -> None:
         for i, symbol in enumerate(STOCK_SYMBOLS, 1):
             logger.info(
                 "[%d/%d] Crawling %s (1d) — %d days...",
-                i, len(STOCK_SYMBOLS), symbol, DAYS,
+                i,
+                len(STOCK_SYMBOLS),
+                symbol,
+                DAYS,
             )
             try:
                 result = backfill_stock(db, adapter, symbol, DAYS)
@@ -166,7 +180,13 @@ def main() -> None:
     total = 0
     ok = 0
     for r in results:
-        icon = "OK" if r["status"] == "ok" else "EMPTY" if r["status"] == "empty" else "ERR"
+        icon = (
+            "OK"
+            if r["status"] == "ok"
+            else "EMPTY"
+            if r["status"] == "empty"
+            else "ERR"
+        )
         logger.info("  [%s] %s -> %d rows", icon, r["symbol"], r["rows"])
         total += r["rows"]
         if r["status"] == "ok":

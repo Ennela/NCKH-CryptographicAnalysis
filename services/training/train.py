@@ -213,8 +213,11 @@ def run_pipeline() -> None:
     # 2. Feature Engineering
     # ------------------------------------------------------------------
     features_df = loader.engineer_features(raw_df)
-    logger.info("Feature engineering complete — %d rows, %d columns",
-                len(features_df), len(features_df.columns))
+    logger.info(
+        "Feature engineering complete — %d rows, %d columns",
+        len(features_df),
+        len(features_df.columns),
+    )
 
     # ------------------------------------------------------------------
     # 3. Add target BEFORE split (avoids boundary data loss)
@@ -260,7 +263,10 @@ def run_pipeline() -> None:
 
     logger.info(
         "Features: %s  |  Train=%d  Val=%d  Test=%d",
-        feature_cols, len(X_train), len(X_val), len(X_test),
+        feature_cols,
+        len(X_train),
+        len(X_val),
+        len(X_test),
     )
 
     # ------------------------------------------------------------------
@@ -296,8 +302,10 @@ def run_pipeline() -> None:
             study.optimize(
                 lambda trial: objective_optuna(
                     trial,
-                    X_train.values, y_train.values,
-                    X_val.values, y_val.values,
+                    X_train.values,
+                    y_train.values,
+                    X_val.values,
+                    y_val.values,
                 ),
                 n_trials=10,
             )
@@ -317,7 +325,9 @@ def run_pipeline() -> None:
 
     elif args.model == "random_forest":
         if args.tune:
-            logger.info("Optuna tuning not yet implemented for Random Forest. Using defaults.")
+            logger.info(
+                "Optuna tuning not yet implemented for Random Forest. Using defaults."
+            )
 
         params_logged = {
             "n_estimators": 200,

@@ -1,6 +1,8 @@
+import logging
+
+import numpy as np
 import torch
 import torch.nn as nn
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -89,8 +91,6 @@ class GRUForecaster(nn.Module):
 # ==============================================================================
 # Sequence Shaping Helpers (for LSTM / GRU)
 # ==============================================================================
-
-import numpy as np
 
 
 def create_sequences(

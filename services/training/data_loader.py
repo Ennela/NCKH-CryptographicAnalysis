@@ -99,8 +99,7 @@ class DataLoader:
 
         # Step 1: resolve ticker → symbol_id
         sym_query = text(
-            "SELECT id FROM market.symbol "
-            "WHERE ticker = :ticker AND status = 'active'"
+            "SELECT id FROM market.symbol WHERE ticker = :ticker AND status = 'active'"
         )
 
         try:
@@ -245,12 +244,8 @@ class DataLoader:
 
         # --- Rolling statistics ---
         for window in (7, 14):
-            df[f"rolling_mean_{window}"] = (
-                df["close"].rolling(window=window).mean()
-            )
-            df[f"rolling_std_{window}"] = (
-                df["close"].rolling(window=window).std()
-            )
+            df[f"rolling_mean_{window}"] = df["close"].rolling(window=window).mean()
+            df[f"rolling_std_{window}"] = df["close"].rolling(window=window).std()
 
         # --- Volume change ---
         df["volume_change"] = df["volume"].pct_change()
@@ -362,9 +357,7 @@ class DataLoader:
     # Cross-validation
     # ------------------------------------------------------------------
 
-    def get_time_series_cross_val_splits(
-        self, df: pd.DataFrame, n_splits: int = 5
-    ):
+    def get_time_series_cross_val_splits(self, df: pd.DataFrame, n_splits: int = 5):
         """
         Yields (train, val) splits using TimeSeriesSplit (Agile/ML validation standard).
         """

@@ -47,7 +47,9 @@ def _expected_contract_rows(contract: dict[str, Any]) -> list[dict[str, Any]]:
                         "timeframe": timeframe,
                         "start_ts": pd.Timestamp(timeframe_config["start_ts"]),
                         "end_ts": pd.Timestamp(timeframe_config["end_ts"]),
-                        "expected_rows": timeframe_config.get("expected_rows_per_symbol"),
+                        "expected_rows": timeframe_config.get(
+                            "expected_rows_per_symbol"
+                        ),
                         "expected_min": timeframe_config.get(
                             "expected_rows_per_symbol_min"
                         ),
@@ -198,7 +200,6 @@ def main() -> None:
     errors: list[str] = []
     warnings: list[str] = []
     for expected in expected_rows:
-        key = (expected["ticker"], expected["timeframe"])
         actual_window = _query_contract_window(expected)
         if actual_window.empty:
             errors.append(f"Missing {expected['ticker']} {expected['timeframe']}")
@@ -254,7 +255,9 @@ def main() -> None:
         logger.warning("  - %s", warning)
 
     _check_snapshot_fingerprint(contract)
-    logger.info("Dataset check passed: local DB matches %s", contract["dataset_version"])
+    logger.info(
+        "Dataset check passed: local DB matches %s", contract["dataset_version"]
+    )
 
 
 if __name__ == "__main__":

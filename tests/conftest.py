@@ -29,8 +29,7 @@ def setup_test_db(request: pytest.FixtureRequest) -> bool:
     Create the test database and run init.sql once per session.
     """
     if request.session.items and all(
-        item.get_closest_marker("no_db") is not None
-        for item in request.session.items
+        item.get_closest_marker("no_db") is not None for item in request.session.items
     ):
         return False
 
