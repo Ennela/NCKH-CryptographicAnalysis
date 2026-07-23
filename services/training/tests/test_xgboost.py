@@ -537,6 +537,8 @@ def test_mlflow_logs_protocol_metadata_hyperparameters_and_metrics(
     assert logged_params["test_manifest_sha256"] == manifest_hash
     assert logged_params["symbol"] == "ACB"
     assert logged_params["timeframe"] == "1d"
+    assert logged_params["model"] == "xgboost"
+    assert logged_params["horizon"] == 1
     assert logged_params["seed"] == 42
     assert logged_params["target"] == "next_close"
     assert logged_params["feature_list"] == ",".join(FEATURE_LIST)
