@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from services.training import benchmark
+from services.training import benchmark, benchmark_contract
 from services.training.benchmark_contract import (
     EXPECTED_TEST_MANIFEST_SHA256,
     METRIC_NAMES,
@@ -736,17 +736,130 @@ def test_report_contains_all_required_sections(
         _expect(f"## {section}" in report, f"Report is missing {section}")
 
 
-def test_locked_manifest_has_issue_20_hash(
+def _build_manifest_from_mocked_loader(
+    monkeypatch: pytest.MonkeyPatch,
     contract: LockedBenchmarkContract,
-) -> None:
+) -> tuple[pd.DataFrame, str]:
+    """Build a synthetic manifest through the real locked-manifest logic."""
+    timestamps = pd.date_range("2026-01-01", periods=79, freq="D", tz="UTC")
+    close = np.linspace(20.0, 27.8, 79)
+    loader_frame = pd.DataFrame(
+        {
+            "ts": timestamps,
+            "close": close,
+            "next_close": np.append(close[1:], np.nan),
+            "split": [contract.split] * 78 + ["after_test"],
+        }
+    )
+    expected_manifest = pd.DataFrame(
+        {
+            "dataset_version": contract.dataset_version,
+            "snapshot_name": contract.snapshot_name,
+            "symbol": contract.symbol,
+            "timeframe": contract.timeframe,
+            "split": contract.split,
+            "input_ts": timestamps[:-1].strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "target_ts": timestamps[1:].strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "current_close": close[:-1],
+            "actual_close": close[1:],
+        }
+    )
+    expected_hash = calculate_manifest_sha256(expected_manifest)
+    monkeypatch.setattr(benchmark_contract, "assert_locked_dataset", lambda: None)
+    monkeypatch.setattr(
+        benchmark_contract,
+        "load_full",
+        lambda symbol, timeframe: loader_frame.copy(deep=True),
+    )
+    monkeypatch.setattr(
+        benchmark_contract,
+        "EXPECTED_TEST_MANIFEST_SHA256",
+        expected_hash,
+    )
     manifest, manifest_hash = build_locked_test_manifest(contract)
     _expect(
-        manifest_hash == EXPECTED_TEST_MANIFEST_SHA256,
-        "Locked production manifest differs from the Issue #20 hash",
+        manifest.equals(expected_manifest),
+        "Mocked loader did not produce the expected canonical manifest",
     )
     _expect(
-        calculate_manifest_sha256(manifest) == EXPECTED_TEST_MANIFEST_SHA256,
-        "Returned production manifest does not reproduce its locked hash",
+        manifest_hash == expected_hash,
+        "Mocked loader manifest did not reproduce its independently computed hash",
+    )
+    return manifest, manifest_hash
+
+
+def test_issue_20_manifest_hash_constant_is_exact() -> None:
+    _expect(
+        EXPECTED_TEST_MANIFEST_SHA256
+        == "62d82e13b48f337623235e20c2412d435395fef46fea5a24776ea895d1c8b828",
+        "Issue #20 canonical manifest constant changed",
+    )
+
+
+def test_mocked_loader_manifest_is_accepted_when_rows_match(
+    monkeypatch: pytest.MonkeyPatch,
+    contract: LockedBenchmarkContract,
+) -> None:
+    manifest, manifest_hash = _build_manifest_from_mocked_loader(monkeypatch, contract)
+    predictions = _prediction_frame(manifest)
+    evaluation = benchmark.ModelEvaluation(
+        model="xgboost",
+        run_id="a" * 32,
+    )
+    benchmark.validate_prediction_frame(
+        evaluation,
+        predictions,
+        contract,
+        manifest,
+        manifest_hash,
+    )
+    _expect(
+        not evaluation.failure_reasons,
+        f"Consistent mocked-loader manifest was rejected: {evaluation.failure_reasons}",
+    )
+
+
+@pytest.mark.parametrize(
+    "drift",
+    ["input_ts", "target_ts", "current_close", "actual_close", "row_order"],
+)
+def test_mocked_loader_manifest_drift_is_rejected(
+    drift: str,
+    monkeypatch: pytest.MonkeyPatch,
+    contract: LockedBenchmarkContract,
+) -> None:
+    manifest, manifest_hash = _build_manifest_from_mocked_loader(monkeypatch, contract)
+    predictions = _prediction_frame(manifest)
+    if drift == "input_ts":
+        predictions.loc[0, "input_ts"] = "2026-01-01T01:00:00Z"
+    elif drift == "target_ts":
+        predictions.loc[0, "target_ts"] = "2026-01-02T01:00:00Z"
+    elif drift == "current_close":
+        predictions.loc[0, "current_close"] += 0.25
+    elif drift == "actual_close":
+        predictions.loc[0, "actual_close"] += 0.25
+    else:
+        order = [1, 0, *range(2, len(predictions))]
+        predictions = predictions.iloc[order].reset_index(drop=True)
+    evaluation = benchmark.ModelEvaluation(
+        model="xgboost",
+        run_id="a" * 32,
+    )
+    benchmark.validate_prediction_frame(
+        evaluation,
+        predictions,
+        contract,
+        manifest,
+        manifest_hash,
+    )
+    locked_check = next(
+        check for check in evaluation.checks if check.name == "locked_manifest_rows"
+    )
+    _expect(locked_check.status == "fail", f"{drift} drift silently passed")
+    _expect(
+        locked_check.failure_reason
+        == "Prediction rows do not match the locked canonical manifest.",
+        f"{drift} drift did not return a clear validation reason",
     )
 
 
