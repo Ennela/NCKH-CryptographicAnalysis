@@ -66,7 +66,7 @@ jobs:
           if [ -f services/training/requirements.txt ]; then pip install -r services/training/requirements.txt; fi
           if [ -f services/inference/requirements.txt ]; then pip install -r services/inference/requirements.txt; fi
           # MLflow 2.11.3 imports pkg_resources, which setuptools 81+ removed.
-          pip install setuptools==80.9.0 pytest pytest-mock httpx
+          pip install setuptools==80.9.0 pytest pytest-asyncio pytest-mock httpx
 
       - name: Run Pytest
         run: |
