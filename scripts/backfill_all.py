@@ -57,21 +57,21 @@ CRYPTO_RESOLUTIONS: list[str] = ["1d", "1h"]
 
 # Cổ phiếu VN — đa ngành: ngân hàng, công nghệ, bất động sản, tiêu dùng, năng lượng
 STOCK_SYMBOLS: list[str] = [
-    "FPT",   # Công nghệ
-    "VCB",   # Ngân hàng
-    "MSN",   # Tiêu dùng (Masan)
-    "VNM",   # Sữa (Vinamilk)
-    "HPG",   # Thép (Hòa Phát)
-    "TCB",   # Ngân hàng (Techcombank)
-    "MBB",   # Ngân hàng (MB)
-    "VIC",   # Bất động sản (Vingroup)
-    "VHM",   # Bất động sản (Vinhomes)
-    "SSI",   # Chứng khoán
-    "GAS",   # Năng lượng (PV Gas)
-    "PLX",   # Dầu khí (Petrolimex)
-    "SAB",   # Bia (Sabeco)
-    "MWG",   # Bán lẻ (Thế Giới Di Động)
-    "ACB",   # Ngân hàng (Á Châu)
+    "FPT",  # Công nghệ
+    "VCB",  # Ngân hàng
+    "MSN",  # Tiêu dùng (Masan)
+    "VNM",  # Sữa (Vinamilk)
+    "HPG",  # Thép (Hòa Phát)
+    "TCB",  # Ngân hàng (Techcombank)
+    "MBB",  # Ngân hàng (MB)
+    "VIC",  # Bất động sản (Vingroup)
+    "VHM",  # Bất động sản (Vinhomes)
+    "SSI",  # Chứng khoán
+    "GAS",  # Năng lượng (PV Gas)
+    "PLX",  # Dầu khí (Petrolimex)
+    "SAB",  # Bia (Sabeco)
+    "MWG",  # Bán lẻ (Thế Giới Di Động)
+    "ACB",  # Ngân hàng (Á Châu)
 ]
 STOCK_RESOLUTIONS: list[str] = ["1d"]  # vnstock chỉ hỗ trợ daily
 
@@ -105,8 +105,12 @@ def backfill_crypto(
     )
 
     job_id = log_job(
-        db, "ingest", f"backfill_crypto_{ticker_str}_{resolution}",
-        "running", symbol_id=symbol_id, timeframe=resolution,
+        db,
+        "ingest",
+        f"backfill_crypto_{ticker_str}_{resolution}",
+        "running",
+        symbol_id=symbol_id,
+        timeframe=resolution,
     )
     db.commit()
 
@@ -140,20 +144,27 @@ def backfill_crypto(
     if not candles:
         update_job(db, job_id, "success", rows_affected=0)
         db.commit()
-        return {"symbol": symbol, "resolution": resolution, "rows": 0, "status": "empty"}
+        return {
+            "symbol": symbol,
+            "resolution": resolution,
+            "rows": 0,
+            "status": "empty",
+        }
 
     rows = []
     for c in candles:
-        rows.append({
-            "symbol_id": symbol_id,
-            "timeframe": resolution,
-            "ts": c.timestamp,
-            "open": Decimal(str(c.open)),
-            "high": Decimal(str(c.high)),
-            "low": Decimal(str(c.low)),
-            "close": Decimal(str(c.close)),
-            "volume": Decimal(str(c.volume)),
-        })
+        rows.append(
+            {
+                "symbol_id": symbol_id,
+                "timeframe": resolution,
+                "ts": c.timestamp,
+                "open": Decimal(str(c.open)),
+                "high": Decimal(str(c.high)),
+                "low": Decimal(str(c.low)),
+                "close": Decimal(str(c.close)),
+                "volume": Decimal(str(c.volume)),
+            }
+        )
 
     raw_rows = [{**r, "source": "binance", "raw_payload": None} for r in rows]
     upsert_ohlcv_raw(db, raw_rows)
@@ -162,8 +173,11 @@ def backfill_crypto(
     # Data quality
     filtered_out = len(rows) - affected
     record_dq_check(
-        db=db, symbol_id=symbol_id, timeframe=resolution,
-        check_name="high_low_check", passed=(filtered_out == 0),
+        db=db,
+        symbol_id=symbol_id,
+        timeframe=resolution,
+        check_name="high_low_check",
+        passed=(filtered_out == 0),
         ts_start=min(r["ts"] for r in rows),
         ts_end=max(r["ts"] for r in rows),
         detail={"total_rows": len(rows), "filtered_rows": filtered_out},
@@ -171,7 +185,12 @@ def backfill_crypto(
 
     update_job(db, job_id, "success", rows_affected=affected)
     db.commit()
-    return {"symbol": symbol, "resolution": resolution, "rows": affected, "status": "ok"}
+    return {
+        "symbol": symbol,
+        "resolution": resolution,
+        "rows": affected,
+        "status": "ok",
+    }
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -193,8 +212,12 @@ def backfill_stock(
     symbol_id = ensure_symbol(db, exchange_id, symbol, "stock", "vnstock")
 
     job_id = log_job(
-        db, "ingest", f"backfill_stock_{symbol}_{resolution}",
-        "running", symbol_id=symbol_id, timeframe=resolution,
+        db,
+        "ingest",
+        f"backfill_stock_{symbol}_{resolution}",
+        "running",
+        symbol_id=symbol_id,
+        timeframe=resolution,
     )
     db.commit()
 
@@ -211,20 +234,27 @@ def backfill_stock(
     if not candles:
         update_job(db, job_id, "success", rows_affected=0)
         db.commit()
-        return {"symbol": symbol, "resolution": resolution, "rows": 0, "status": "empty"}
+        return {
+            "symbol": symbol,
+            "resolution": resolution,
+            "rows": 0,
+            "status": "empty",
+        }
 
     rows = []
     for c in candles:
-        rows.append({
-            "symbol_id": symbol_id,
-            "timeframe": resolution,
-            "ts": c.timestamp,
-            "open": Decimal(str(c.open)),
-            "high": Decimal(str(c.high)),
-            "low": Decimal(str(c.low)),
-            "close": Decimal(str(c.close)),
-            "volume": Decimal(str(c.volume)),
-        })
+        rows.append(
+            {
+                "symbol_id": symbol_id,
+                "timeframe": resolution,
+                "ts": c.timestamp,
+                "open": Decimal(str(c.open)),
+                "high": Decimal(str(c.high)),
+                "low": Decimal(str(c.low)),
+                "close": Decimal(str(c.close)),
+                "volume": Decimal(str(c.volume)),
+            }
+        )
 
     raw_rows = [{**r, "source": "vnstock", "raw_payload": None} for r in rows]
     upsert_ohlcv_raw(db, raw_rows)
@@ -233,8 +263,11 @@ def backfill_stock(
     # Data quality
     filtered_out = len(rows) - affected
     record_dq_check(
-        db=db, symbol_id=symbol_id, timeframe=resolution,
-        check_name="high_low_check", passed=(filtered_out == 0),
+        db=db,
+        symbol_id=symbol_id,
+        timeframe=resolution,
+        check_name="high_low_check",
+        passed=(filtered_out == 0),
         ts_start=min(r["ts"] for r in rows),
         ts_end=max(r["ts"] for r in rows),
         detail={"total_rows": len(rows), "filtered_rows": filtered_out},
@@ -242,7 +275,12 @@ def backfill_stock(
 
     update_job(db, job_id, "success", rows_affected=affected)
     db.commit()
-    return {"symbol": symbol, "resolution": resolution, "rows": affected, "status": "ok"}
+    return {
+        "symbol": symbol,
+        "resolution": resolution,
+        "rows": affected,
+        "status": "ok",
+    }
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -260,58 +298,68 @@ def main() -> None:
 
     try:
         # ── Crypto ────────────────────────────────────────────────────
-        logger.info("\n>>> CRYPTO — %d symbols × %d resolutions",
-                    len(CRYPTO_SYMBOLS), len(CRYPTO_RESOLUTIONS))
+        logger.info(
+            "\n>>> CRYPTO — %d symbols × %d resolutions",
+            len(CRYPTO_SYMBOLS),
+            len(CRYPTO_RESOLUTIONS),
+        )
 
         adapter_binance = BinanceAdapter()
         for symbol in CRYPTO_SYMBOLS:
             for resolution in CRYPTO_RESOLUTIONS:
-                logger.info(f"\n{'─'*50}")
+                logger.info(f"\n{'─' * 50}")
                 logger.info(f"Crawling {symbol} ({resolution}) — {DAYS} days...")
                 try:
                     result = backfill_crypto(
                         db, adapter_binance, symbol, resolution, DAYS
                     )
                     results.append(result)
-                    logger.info(
-                        f"✓ {symbol} ({resolution}): {result['rows']} rows"
-                    )
+                    logger.info(f"✓ {symbol} ({resolution}): {result['rows']} rows")
                 except Exception as e:
                     logger.error(f"✗ {symbol} ({resolution}) FAILED: {e}")
                     db.rollback()
-                    results.append({
-                        "symbol": symbol, "resolution": resolution,
-                        "rows": 0, "status": f"error: {e}",
-                    })
+                    results.append(
+                        {
+                            "symbol": symbol,
+                            "resolution": resolution,
+                            "rows": 0,
+                            "status": f"error: {e}",
+                        }
+                    )
                 # Sleep giữa các symbol/resolution để tránh rate limit
                 time.sleep(1)
 
         adapter_binance.close()
 
         # ── VN Stocks ─────────────────────────────────────────────────
-        logger.info("\n>>> VN STOCKS — %d symbols × %d resolutions",
-                    len(STOCK_SYMBOLS), len(STOCK_RESOLUTIONS))
+        logger.info(
+            "\n>>> VN STOCKS — %d symbols × %d resolutions",
+            len(STOCK_SYMBOLS),
+            len(STOCK_RESOLUTIONS),
+        )
 
         adapter_vnstock = VNStockAdapter()
         for symbol in STOCK_SYMBOLS:
             for resolution in STOCK_RESOLUTIONS:
-                logger.info(f"\n{'─'*50}")
+                logger.info(f"\n{'─' * 50}")
                 logger.info(f"Crawling {symbol} ({resolution}) — {DAYS} days...")
                 try:
                     result = backfill_stock(
                         db, adapter_vnstock, symbol, resolution, DAYS
                     )
                     results.append(result)
-                    logger.info(
-                        f"✓ {symbol} ({resolution}): {result['rows']} rows"
-                    )
+                    logger.info(f"✓ {symbol} ({resolution}): {result['rows']} rows")
                 except Exception as e:
                     logger.error(f"✗ {symbol} ({resolution}) FAILED: {e}")
                     db.rollback()
-                    results.append({
-                        "symbol": symbol, "resolution": resolution,
-                        "rows": 0, "status": f"error: {e}",
-                    })
+                    results.append(
+                        {
+                            "symbol": symbol,
+                            "resolution": resolution,
+                            "rows": 0,
+                            "status": f"error: {e}",
+                        }
+                    )
                 # Rate limit cho vnstock API
                 time.sleep(2)
 
@@ -327,7 +375,9 @@ def main() -> None:
     ok_count = 0
     fail_count = 0
     for r in results:
-        status_icon = "✓" if r["status"] == "ok" else "⚠" if r["status"] == "empty" else "✗"
+        status_icon = (
+            "✓" if r["status"] == "ok" else "⚠" if r["status"] == "empty" else "✗"
+        )
         logger.info(
             f"  {status_icon} {r['symbol']:>12s} ({r['resolution']}) "
             f"→ {r['rows']:>6d} rows  [{r['status']}]"
@@ -339,7 +389,9 @@ def main() -> None:
             fail_count += 1
 
     logger.info(f"\nTotal: {total_rows} rows inserted/updated")
-    logger.info(f"Success: {ok_count} | Empty: {len(results) - ok_count - fail_count} | Failed: {fail_count}")
+    logger.info(
+        f"Success: {ok_count} | Empty: {len(results) - ok_count - fail_count} | Failed: {fail_count}"
+    )
     logger.info("=" * 70)
 
 

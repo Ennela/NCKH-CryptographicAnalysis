@@ -14,6 +14,7 @@ class VNStockAdapter:
     def __init__(self):
         try:
             from vnstock import Vnstock
+
             self._vnstock = Vnstock
             logger.info("vnstock library initialized successfully")
         except ImportError:
@@ -88,9 +89,12 @@ class VNStockAdapter:
                 volume_val = _get_col(row, ["volume", "Volume"])
 
                 if any(
-                    v is None for v in [open_val, high_val, low_val, close_val, volume_val]
+                    v is None
+                    for v in [open_val, high_val, low_val, close_val, volume_val]
                 ):
-                    logger.warning(f"Skipping row with missing OHLCV data: {row.to_dict()}")
+                    logger.warning(
+                        f"Skipping row with missing OHLCV data: {row.to_dict()}"
+                    )
                     continue
 
                 ohlcv_list.append(

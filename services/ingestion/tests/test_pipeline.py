@@ -46,18 +46,20 @@ def _insert_raw_candle(
     """Helper chèn nhanh 1 candle thô vào market.ohlcv_raw."""
     upsert_ohlcv_raw(
         db,
-        [{
-            "symbol_id": symbol_id,
-            "timeframe": "1d",
-            "ts": ts,
-            "open": Decimal(str(close * 0.99)),
-            "high": Decimal(str(close * 1.01)),
-            "low": Decimal(str(close * 0.98)),
-            "close": Decimal(str(close)),
-            "volume": Decimal(str(volume)),
-            "source": "vnstock",
-            "raw_payload": None,
-        }],
+        [
+            {
+                "symbol_id": symbol_id,
+                "timeframe": "1d",
+                "ts": ts,
+                "open": Decimal(str(close * 0.99)),
+                "high": Decimal(str(close * 1.01)),
+                "low": Decimal(str(close * 0.98)),
+                "close": Decimal(str(close)),
+                "volume": Decimal(str(volume)),
+                "source": "vnstock",
+                "raw_payload": None,
+            }
+        ],
     )
 
 

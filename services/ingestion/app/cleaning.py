@@ -22,7 +22,6 @@ import logging
 from dataclasses import dataclass
 from typing import Optional
 
-import numpy as np
 import pandas as pd
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -239,7 +238,9 @@ def fill_missing_sessions(
     result = pd.concat(filled_groups, ignore_index=True)
 
     if total_filled > 0:
-        logger.info("Forward-fill: điền %d phiên thiếu (limit=%d)", total_filled, ffill_limit)
+        logger.info(
+            "Forward-fill: điền %d phiên thiếu (limit=%d)", total_filled, ffill_limit
+        )
 
     return result, total_filled
 
@@ -291,9 +292,8 @@ def detect_outliers(
         upper = q3 + iqr_multiplier * iqr
 
         # Chỉ flag nếu nhóm đủ lớn để IQR có ý nghĩa
-        outlier_mask = (
-            (group_sizes >= min_group_size)
-            & ((values < lower) | (values > upper))
+        outlier_mask = (group_sizes >= min_group_size) & (
+            (values < lower) | (values > upper)
         )
         df.loc[outlier_mask, "is_outlier"] = True
 
@@ -301,7 +301,8 @@ def detect_outliers(
     if outlier_count > 0:
         logger.info(
             "Outlier detection: %d bản ghi bị gắn cờ (IQR × %.1f)",
-            outlier_count, iqr_multiplier,
+            outlier_count,
+            iqr_multiplier,
         )
 
     return df, outlier_count
@@ -368,7 +369,8 @@ def clean_ohlcv(
 
     # Step 4: Outlier detection (flag only, don't remove)
     df, outliers = detect_outliers(
-        df, iqr_multiplier=config.CLEANING_IQR_MULTIPLIER,
+        df,
+        iqr_multiplier=config.CLEANING_IQR_MULTIPLIER,
     )
     report.outliers_flagged = outliers
 

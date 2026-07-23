@@ -123,6 +123,8 @@ def generate_beat_schedule() -> dict:
     logger.info(
         "Đã sinh cấu hình Beat Schedule: %d crypto tasks, %d stock tasks "
         "(Stagger interval = %d mins)",
-        crypto_count, stock_count, settings.CLEAN_STAGGER_INTERVAL_MINS,
+        crypto_count,
+        stock_count,
+        settings.CLEAN_STAGGER_INTERVAL_MINS,
     )
     return schedule

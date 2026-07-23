@@ -19,7 +19,6 @@ from __future__ import annotations
 
 from datetime import datetime, timezone, timedelta
 
-import numpy as np
 import pandas as pd
 import pytest
 
@@ -150,8 +149,14 @@ class TestDeduplicate:
         """Nếu có ingested_at, giữ bản ghi mới nhất."""
         ts = datetime(2024, 1, 15, tzinfo=timezone.utc)
         rows = [
-            {**_make_row(ts=ts, close=100), "ingested_at": datetime(2024, 1, 20, tzinfo=timezone.utc)},
-            {**_make_row(ts=ts, close=200), "ingested_at": datetime(2024, 1, 21, tzinfo=timezone.utc)},
+            {
+                **_make_row(ts=ts, close=100),
+                "ingested_at": datetime(2024, 1, 20, tzinfo=timezone.utc),
+            },
+            {
+                **_make_row(ts=ts, close=200),
+                "ingested_at": datetime(2024, 1, 21, tzinfo=timezone.utc),
+            },
         ]
         df = _make_df(rows)
         result, removed = deduplicate(df)
@@ -174,9 +179,13 @@ class TestFillMissingSessions:
         """Thiếu 1 ngày giữa Mon–Wed → fill Tue bằng close của Mon."""
         rows = [
             # Mon 2024-01-15
-            _make_row(ts=datetime(2024, 1, 15, tzinfo=timezone.utc), close=100, volume=5000),
+            _make_row(
+                ts=datetime(2024, 1, 15, tzinfo=timezone.utc), close=100, volume=5000
+            ),
             # Wed 2024-01-17 (Tue 16 thiếu)
-            _make_row(ts=datetime(2024, 1, 17, tzinfo=timezone.utc), close=102, volume=6000),
+            _make_row(
+                ts=datetime(2024, 1, 17, tzinfo=timezone.utc), close=102, volume=6000
+            ),
         ]
         df = _make_df(rows)
         result, filled = fill_missing_sessions(df, "stock", "1d", ffill_limit=2)
@@ -235,7 +244,9 @@ class TestFillMissingSessions:
         """Stock hourly (nếu có): chỉ fill daily, không fill hourly."""
         rows = [
             _make_row(ts=datetime(2024, 1, 15, 9, tzinfo=timezone.utc), timeframe="1h"),
-            _make_row(ts=datetime(2024, 1, 15, 11, tzinfo=timezone.utc), timeframe="1h"),
+            _make_row(
+                ts=datetime(2024, 1, 15, 11, tzinfo=timezone.utc), timeframe="1h"
+            ),
         ]
         df = _make_df(rows)
         result, filled = fill_missing_sessions(df, "stock", "1h", ffill_limit=3)
@@ -323,9 +334,7 @@ class TestDetectOutliers:
             for i in range(3)
         ]
         # Thêm giá trị cực đoan nhưng nhóm chỉ có 4 rows
-        rows.append(
-            _make_row(ts=datetime(2024, 1, 5, tzinfo=timezone.utc), close=999)
-        )
+        rows.append(_make_row(ts=datetime(2024, 1, 5, tzinfo=timezone.utc), close=999))
         df = _make_df(rows)
         result, count = detect_outliers(df, iqr_multiplier=1.5, min_group_size=10)
 
@@ -361,10 +370,18 @@ class TestCleanOhlcv:
         """Stock: dedup + fill missing + outlier detection."""
         rows = [
             # Mon 2024-01-15
-            _make_row(ts=datetime(2024, 1, 15, tzinfo=timezone.utc), close=100, source="vnstock"),
+            _make_row(
+                ts=datetime(2024, 1, 15, tzinfo=timezone.utc),
+                close=100,
+                source="vnstock",
+            ),
             # Skip Tue 16
             # Wed 2024-01-17
-            _make_row(ts=datetime(2024, 1, 17, tzinfo=timezone.utc), close=102, source="vnstock"),
+            _make_row(
+                ts=datetime(2024, 1, 17, tzinfo=timezone.utc),
+                close=102,
+                source="vnstock",
+            ),
         ]
         # Thêm đủ rows để outlier detection hoạt động
         for i in range(18, 31):

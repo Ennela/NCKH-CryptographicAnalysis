@@ -33,6 +33,20 @@ jobs:
   pytest:
     name: Python Tests
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: timescale/timescaledb:latest-pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres_secure_pass_123
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - name: Checkout Code
         uses: actions/checkout@v3
@@ -51,7 +65,8 @@ jobs:
           if [ -f services/ingestion/requirements.txt ]; then pip install -r services/ingestion/requirements.txt; fi
           if [ -f services/training/requirements.txt ]; then pip install -r services/training/requirements.txt; fi
           if [ -f services/inference/requirements.txt ]; then pip install -r services/inference/requirements.txt; fi
-          pip install pytest pytest-mock httpx
+          # MLflow 2.11.3 imports pkg_resources, which setuptools 81+ removed.
+          pip install setuptools==80.9.0 pytest pytest-asyncio pytest-mock httpx
 
       - name: Run Pytest
         run: |

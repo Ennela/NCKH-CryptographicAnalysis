@@ -21,9 +21,7 @@ def compute_manifest_fingerprint(manifest: dict[str, Any]) -> str:
     hashes canonical JSON so whitespace and key order do not affect the result.
     """
     manifest_copy = {
-        key: value
-        for key, value in manifest.items()
-        if key != "snapshot_fingerprint"
+        key: value for key, value in manifest.items() if key != "snapshot_fingerprint"
     }
     canonical = json.dumps(
         manifest_copy,

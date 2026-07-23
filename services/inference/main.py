@@ -1,7 +1,7 @@
 import logging
 import redis
 from datetime import timedelta
-from typing import List, Optional
+from typing import List
 from fastapi import FastAPI, Depends, Header, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
@@ -12,6 +12,7 @@ from shared.utils.logging import setup_logging
 from shared.utils.timezone import now_utc, to_utc
 from shared.config.settings import settings
 from shared.db.session import get_db
+
 # Note: hypertable tables (market.ohlcv, ml.prediction) use raw SQL, not ORM models
 from shared.schemas.predict import (
     PredictRequest,
