@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
@@ -33,6 +34,18 @@ class TrackingForecaster:
 
     def update(self, actual_close: float) -> None:
         self.history.append(float(actual_close))
+
+    def snapshot(self) -> TrackingForecaster:
+        snapshot = TrackingForecaster(self.forecast_offset)
+        snapshot.history = list(self.history)
+        snapshot.forecast_histories = list(self.forecast_histories)
+        return snapshot
+
+
+def _require(condition: bool, message: str) -> None:
+    """Fail explicitly so critical checks remain active under python -O."""
+    if not condition:
+        pytest.fail(message)
 
 
 def _small_locked_frame() -> pd.DataFrame:
@@ -85,7 +98,12 @@ def _run_tracking_evaluation() -> tuple[
         return model
 
     evaluation = train_arima.run_rolling_evaluation(prepared, factory)
-    return prepared, evaluation, instances[0]
+    evaluator = evaluation.evaluation_model
+    _require(
+        isinstance(evaluator, TrackingForecaster),
+        "Rolling evaluation did not return the tracking evaluator",
+    )
+    return prepared, evaluation, evaluator
 
 
 def test_rolling_forecast_aligns_each_horizon_one_target() -> None:
@@ -126,6 +144,37 @@ def test_each_forecast_history_ends_at_its_input_timestamp() -> None:
         assert history_end.tolist() == input_ts.tolist()
         assert (history_end <= input_ts).all()
         assert (input_ts < target_ts).all()
+
+
+def test_pre_test_state_is_independent_from_post_test_evaluator() -> None:
+    prepared, evaluation, evaluator = _run_tracking_evaluation()
+    pre_test = evaluation.pre_test_model
+    _require(
+        isinstance(pre_test, TrackingForecaster),
+        "Pre-test state has an unexpected model type",
+    )
+    _require(id(pre_test) != id(evaluator), "Pre-test and evaluator objects are shared")
+
+    expected_pre_test_count = (
+        len(prepared.train_close) + len(prepared.validation_pairs) + 1
+    )
+    expected_post_test_count = expected_pre_test_count + len(prepared.test_pairs) + 1
+    _require(
+        len(pre_test.history) == expected_pre_test_count,
+        "Pre-test state changed while rolling through test targets",
+    )
+    _require(
+        len(evaluator.history) == expected_post_test_count,
+        "Evaluation state does not contain the complete post-test history",
+    )
+    _require(
+        pre_test.history[-1] == 53.0,
+        "Pre-test state does not end at the validation boundary",
+    )
+    _require(
+        evaluator.history[-1] == 104.0,
+        "Evaluation state does not end at the final test observation",
+    )
 
 
 def test_rolling_split_rejects_history_from_the_future() -> None:
@@ -282,6 +331,48 @@ def test_naive_metrics_use_current_close_from_the_same_manifest() -> None:
     assert prediction_frame["test_manifest_sha256"].eq(manifest_hash).all()
 
 
+def test_prediction_and_summary_frames_use_exact_protocol_schemas() -> None:
+    prepared, evaluation, _ = _run_tracking_evaluation()
+    manifest = train_arima.build_test_manifest(
+        prepared.test_pairs,
+        _metadata(),
+        "SYNTH",
+        "1d",
+    )
+    manifest_hash = train_arima.calculate_test_manifest_sha256(manifest)
+    metrics = train_arima.evaluate_predictions(
+        manifest["actual_close"],
+        evaluation.test.predictions,
+        manifest["current_close"],
+    )
+    prediction_frame = train_arima.build_prediction_frame(
+        manifest,
+        evaluation.test.predictions,
+        manifest_hash,
+        "run-1",
+        42,
+    )
+    summary_frame = train_arima.build_summary_frame(
+        _metadata(),
+        "SYNTH",
+        "1d",
+        manifest_hash,
+        metrics,
+        len(manifest),
+        "run-1",
+        42,
+    )
+
+    _require(
+        tuple(prediction_frame.columns) == train_arima.PREDICTION_FIELDNAMES,
+        "Prediction frame schema differs from the 14-column protocol",
+    )
+    _require(
+        tuple(summary_frame.columns) == train_arima.SUMMARY_FIELDNAMES,
+        "Summary frame schema differs from the 20-column protocol",
+    )
+
+
 def test_metrics_reject_non_finite_values_and_impossible_rmse() -> None:
     with pytest.raises(ValueError, match="contains NaN or Inf"):
         train_arima.evaluate_predictions([2.0], [np.inf], [1.0])
@@ -366,6 +457,239 @@ def test_model_wrapper_forecasts_one_step_then_appends_actual(
     assert model.forecast_one() == pytest.approx(4.5)
     model.update(5.0)
     assert model.forecast_one() == pytest.approx(5.5)
+
+
+def test_statsmodels_snapshot_is_independent_reloadable_and_forecastable(
+    tmp_path: Path,
+) -> None:
+    import mlflow.statsmodels
+
+    model = ARIMABaseline().fit(np.linspace(10.0, 20.0, 24))
+    pre_test_count = model.observation_count
+    pre_test_last_value = model.last_observed_value
+    evaluator = model.snapshot()
+
+    _require(id(model) != id(evaluator), "Snapshot reused the ARIMA wrapper")
+    _require(
+        id(model.fitted_model) != id(evaluator.fitted_model),
+        "Snapshot reused the fitted Statsmodels result",
+    )
+    evaluator.update(21.0)
+    _require(
+        model.observation_count == pre_test_count,
+        "Updating the evaluator mutated the pre-test observation count",
+    )
+    _require(
+        model.last_observed_value == pre_test_last_value,
+        "Updating the evaluator mutated the pre-test final value",
+    )
+    _require(
+        evaluator.observation_count == pre_test_count + 1,
+        "Evaluator did not append exactly one observation",
+    )
+
+    artifact_path = tmp_path / "statsmodels_model"
+    mlflow.statsmodels.save_model(model.fitted_model, artifact_path)
+    restored = mlflow.statsmodels.load_model(artifact_path)
+    restored_endog = np.asarray(restored.model.endog, dtype=np.float64).reshape(-1)
+    restored_forecast = np.asarray(restored.forecast(steps=1), dtype=np.float64)
+    _require(
+        int(restored.nobs) == pre_test_count,
+        "Reloaded artifact changed the pre-test observation count",
+    )
+    _require(
+        float(restored_endog[-1]) == pre_test_last_value,
+        "Reloaded artifact changed the pre-test final value",
+    )
+    _require(
+        restored_forecast.shape == (1,) and np.isfinite(restored_forecast).all(),
+        "Reloaded artifact cannot produce one finite forecast",
+    )
+
+
+def test_mlflow_contract_logs_pre_test_boundary_and_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import mlflow
+    import mlflow.statsmodels
+
+    from services.training import mlflow_utils
+
+    captured: dict[str, Any] = {}
+
+    class RunContext:
+        def __enter__(self) -> SimpleNamespace:
+            return SimpleNamespace(info=SimpleNamespace(run_id="run-1"))
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+    model = ARIMABaseline().fit(np.linspace(10.0, 20.0, 24))
+    state_metadata = train_arima.build_model_state_metadata(
+        model,
+        pd.Timestamp("2026-01-24", tz="UTC"),
+        20.0,
+    )
+    metrics = train_arima.evaluate_predictions(
+        [20.0, 21.0],
+        [19.5, 21.5],
+        [19.0, 20.0],
+    )
+
+    monkeypatch.setattr(mlflow_utils, "init_mlflow", lambda: None)
+    monkeypatch.setattr(
+        mlflow, "set_experiment", lambda name: captured.setdefault("experiment", name)
+    )
+    monkeypatch.setattr(mlflow, "start_run", lambda **kwargs: RunContext())
+    monkeypatch.setattr(
+        mlflow, "log_params", lambda params: captured.setdefault("params", params)
+    )
+    monkeypatch.setattr(
+        mlflow, "log_metrics", lambda values: captured.setdefault("metrics", values)
+    )
+    monkeypatch.setattr(
+        mlflow,
+        "log_dict",
+        lambda payload, path: captured.update(metadata=payload, metadata_path=path),
+    )
+    monkeypatch.setattr(
+        mlflow.statsmodels,
+        "log_model",
+        lambda fitted, **kwargs: captured.update(
+            logged_model=fitted, model_options=kwargs
+        ),
+    )
+
+    run_id = train_arima.log_training_run(
+        _metadata(),
+        "SYNTH",
+        "1d",
+        "a" * 64,
+        42,
+        metrics,
+        model,
+        state_metadata,
+        7,
+        8,
+    )
+    required_params = {
+        "model": "arima",
+        "state_role": "pre_test_deployable",
+        "observation_count": 24,
+        "history_end_ts": "2026-01-24T00:00:00Z",
+        "history_end_value": 20.0,
+        "order_p": 1,
+        "order_d": 1,
+        "order_q": 1,
+        "horizon": 1,
+        "contains_test_history": False,
+    }
+    _require(run_id == "run-1", "MLflow returned an unexpected run ID")
+    for name, expected_value in required_params.items():
+        _require(
+            captured["params"].get(name) == expected_value,
+            f"MLflow param {name} does not match the pre-test contract",
+        )
+        _require(
+            captured["metadata"].get(name) == expected_value,
+            f"Model metadata {name} does not match the pre-test contract",
+        )
+    _require(captured["metrics"] == metrics, "MLflow metrics changed")
+    _require(
+        captured["logged_model"] is model.fitted_model,
+        "MLflow did not receive the immutable pre-test fitted result",
+    )
+    _require(
+        captured["metadata_path"] == "metadata/pre_test_model.json",
+        "Pre-test metadata was logged to an unexpected path",
+    )
+    _require(
+        captured["model_options"]
+        == {"artifact_path": "model", "registered_model_name": "SYNTH_1d_arima"},
+        "Statsmodels registry options do not match the contract",
+    )
+
+
+def test_mlflow_rejects_metadata_that_does_not_match_the_model() -> None:
+    model = ARIMABaseline().fit(np.linspace(10.0, 20.0, 24))
+    invalid_metadata = train_arima.ModelStateMetadata(
+        model="arima",
+        state_role="pre_test_deployable",
+        observation_count=23,
+        history_end_ts="2026-01-24T00:00:00Z",
+        history_end_value=20.0,
+        order_p=1,
+        order_d=1,
+        order_q=1,
+        horizon=1,
+        contains_test_history=False,
+    )
+
+    with pytest.raises(ValueError, match="observation count does not match"):
+        train_arima.validate_model_state_metadata(model, invalid_metadata)
+
+
+def test_training_logs_pre_test_model_and_preserves_run_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    monkeypatch.setattr(train_arima, "assert_locked_dataset", lambda: None)
+    monkeypatch.setattr(train_arima, "load_full", lambda *_: _small_locked_frame())
+    monkeypatch.setattr(train_arima, "load_dataset_metadata", _metadata)
+
+    def fake_log_training_run(*args: Any) -> str:
+        captured["logged_model"] = args[6]
+        captured["state_metadata"] = args[7]
+        return "run-consistency-1"
+
+    def fake_write_and_log_outputs(*args: Any) -> None:
+        captured["output_run_id"] = args[7]
+        captured["output_predictions"] = np.asarray(args[5], dtype=np.float64)
+
+    monkeypatch.setattr(train_arima, "log_training_run", fake_log_training_run)
+    monkeypatch.setattr(
+        train_arima,
+        "_write_and_log_outputs",
+        fake_write_and_log_outputs,
+    )
+    run_id = train_arima.run_training(
+        train_arima.parse_args(
+            ["--ticker", "SYNTH", "--timeframe", "1d", "--seed", "42"]
+        )
+    )
+
+    logged_model = captured["logged_model"]
+    state_metadata = captured["state_metadata"]
+    _require(run_id == "run-consistency-1", "Training returned the wrong run ID")
+    _require(
+        isinstance(logged_model, ARIMABaseline),
+        "Training did not log an ARIMA pre-test model",
+    )
+    _require(
+        logged_model.observation_count == 9,
+        "Training logged a model beyond the synthetic validation boundary",
+    )
+    _require(
+        state_metadata.observation_count == 9,
+        "Training metadata has the wrong synthetic pre-test count",
+    )
+    _require(
+        state_metadata.history_end_ts == "2026-01-09T00:00:00Z",
+        "Training metadata has the wrong synthetic validation boundary",
+    )
+    _require(
+        state_metadata.history_end_value == 53.0,
+        "Training metadata has the wrong synthetic validation value",
+    )
+    _require(
+        captured["output_run_id"] == run_id,
+        "CSV artifacts do not use the originating MLflow run ID",
+    )
+    _require(
+        len(captured["output_predictions"]) == 4,
+        "Training changed the synthetic test prediction count",
+    )
 
 
 @pytest.mark.parametrize("bad_value", [np.nan, np.inf, -np.inf])

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import pickle
 import warnings
 from collections.abc import Sequence
 from typing import Any, Protocol
@@ -24,6 +25,10 @@ class ARIMAResult(Protocol):
 
     def append(self, values: Sequence[float], refit: bool) -> ARIMAResult:
         """Return results with new observations appended to model state."""
+
+    @property
+    def nobs(self) -> int:
+        """Return the number of observations held by the fitted result."""
 
 
 def _finite_price_vector(
@@ -90,6 +95,45 @@ class ARIMABaseline:
     def forecast_one(self) -> float:
         """Forecast the close immediately after the latest observed history row."""
         return self.predict(steps=1)[0]
+
+    def snapshot(self) -> ARIMABaseline:
+        """Return an independent fitted-state snapshot via pickle round-trip."""
+        try:
+            serialized = pickle.dumps(
+                self.fitted_model,
+                protocol=pickle.HIGHEST_PROTOCOL,
+            )
+            restored = pickle.loads(serialized)  # noqa: S301 - trusted local object
+        except Exception:
+            logger.exception("Failed to snapshot the fitted ARIMA state.")
+            raise
+
+        snapshot = ARIMABaseline(*self.order)
+        snapshot._model_fit = restored
+        if snapshot.fitted_model is self.fitted_model:
+            raise RuntimeError(
+                "ARIMA snapshot must not reuse the fitted result object."
+            )
+        if snapshot.observation_count != self.observation_count:
+            raise RuntimeError("ARIMA snapshot changed the observation count.")
+        return snapshot
+
+    @property
+    def observation_count(self) -> int:
+        """Return the fitted history length used for artifact-boundary checks."""
+        count = int(self.fitted_model.nobs)
+        if count <= 0:
+            raise ValueError("ARIMA fitted history must contain observations.")
+        return count
+
+    @property
+    def last_observed_value(self) -> float:
+        """Return the final fitted endog value for artifact-boundary checks."""
+        model = getattr(self.fitted_model, "model", None)
+        values = np.asarray(getattr(model, "endog", None), dtype=np.float64).reshape(-1)
+        if values.size == 0 or not np.isfinite(values[-1]):
+            raise ValueError("ARIMA fitted history has no finite final observation.")
+        return float(values[-1])
 
     def predict(self, steps: int = 1) -> list[float]:
         """Return finite forecasts for compatibility with the legacy runner."""
