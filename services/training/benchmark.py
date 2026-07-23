@@ -608,15 +608,17 @@ def _validate_source_provenance(
     source = evaluation.source_commit or ""
     source_format = bool(COMMIT_PATTERN.fullmatch(source))
     in_develop = source_format and git_is_ancestor(source, "origin/develop", repo_root)
-    current_committed_source = source == evaluator_commit
+    in_evaluator_history = source_format and git_is_ancestor(
+        source, evaluator_commit, repo_root
+    )
     evaluation.record(
         "source_commit",
-        source_format and (in_develop or current_committed_source),
-        "ancestor of origin/develop or exact committed evaluator HEAD",
+        source_format and (in_develop or in_evaluator_history),
+        "ancestor of origin/develop or committed evaluator branch HEAD",
         {
             "commit": source or None,
             "in_origin_develop": in_develop,
-            "matches_evaluator_commit": current_committed_source,
+            "in_evaluator_history": in_evaluator_history,
         },
         "Source commit is missing or is not accepted committed provenance.",
     )
@@ -1428,14 +1430,36 @@ def stage_outputs(
     staged = Path(
         tempfile.mkdtemp(prefix=f".{output_dir.name}.staged-", dir=output_dir.parent)
     )
-    _write_overview(staged / OUTPUT_FILENAMES[0], overview_rows)
-    (staged / OUTPUT_FILENAMES[1]).write_text(report, encoding="utf-8", newline="\n")
-    (staged / OUTPUT_FILENAMES[2]).write_text(
-        json.dumps(audit, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-        newline="\n",
-    )
+    try:
+        _write_overview(staged / OUTPUT_FILENAMES[0], overview_rows)
+        (staged / OUTPUT_FILENAMES[1]).write_text(
+            report, encoding="utf-8", newline="\n"
+        )
+        (staged / OUTPUT_FILENAMES[2]).write_text(
+            json.dumps(
+                audit,
+                indent=2,
+                sort_keys=True,
+                ensure_ascii=False,
+                default=_json_default,
+            )
+            + "\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+    except Exception:
+        shutil.rmtree(staged)
+        raise
     return staged
+
+
+def _json_default(value: Any) -> Any:
+    """Convert supported scientific scalar types without hiding bad objects."""
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, (datetime, pd.Timestamp)):
+        return value.isoformat()
+    raise TypeError(f"Unsupported audit JSON type: {type(value).__name__}")
 
 
 def publish_staged_outputs(staged: Path, output_dir: Path) -> None:
@@ -1463,7 +1487,14 @@ def write_failure_audit(output_dir: Path, audit: dict[str, Any]) -> Path:
     destination = output_dir.with_name(f"{output_dir.name}_failed_audit.json")
     temporary = destination.with_name(f".{destination.name}.{uuid.uuid4().hex}.tmp")
     temporary.write_text(
-        json.dumps(audit, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
+        json.dumps(
+            audit,
+            indent=2,
+            sort_keys=True,
+            ensure_ascii=False,
+            default=_json_default,
+        )
+        + "\n",
         encoding="utf-8",
         newline="\n",
     )

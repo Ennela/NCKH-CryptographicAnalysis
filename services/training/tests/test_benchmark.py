@@ -532,6 +532,34 @@ def test_current_committed_evaluator_head_is_allowed_pre_merge(
     )
 
 
+def test_committed_model_run_from_evaluator_branch_history_is_allowed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_commit = "b" * 40
+    evaluator_commit = "a" * 40
+    evaluation = benchmark.ModelEvaluation(model="xgboost", run_id="a" * 32)
+    evaluation.source_commit = source_commit
+
+    def ancestry(ancestor: str, descendant: str, repo_root: Path) -> bool:
+        return (ancestor, descendant) in {
+            (source_commit, evaluator_commit),
+            (
+                benchmark.MINIMUM_SOURCE_COMMITS["xgboost"],
+                source_commit,
+            ),
+        }
+
+    monkeypatch.setattr(benchmark, "git_is_ancestor", ancestry)
+    benchmark._validate_source_provenance(evaluation, evaluator_commit, Path("."))
+    source_status = next(
+        check.status for check in evaluation.checks if check.name == "source_commit"
+    )
+    _expect(
+        source_status == "pass",
+        "Committed model run from evaluator branch history was rejected",
+    )
+
+
 @pytest.mark.parametrize("missing_kind", ["prediction", "summary", "model"])
 def test_required_artifact_gate_rejects_missing_files(missing_kind: str) -> None:
     evaluation = benchmark.ModelEvaluation(model="xgboost", run_id="a" * 32)
@@ -756,6 +784,30 @@ def test_stage_outputs_are_deterministic_and_leave_sources_untouched(
             f"{filename} output is nondeterministic",
         )
     _expect(source.read_text(encoding="utf-8") == "immutable", "Source was overwritten")
+
+
+def test_stage_outputs_serializes_numpy_audit_scalars(tmp_path: Path) -> None:
+    staged = benchmark.stage_outputs(
+        tmp_path / "ACB_1d",
+        [],
+        "report\n",
+        {"seed": np.int64(42), "metric": np.float64(0.5)},
+    )
+    payload = json.loads((staged / "benchmark_audit.json").read_text(encoding="utf-8"))
+    _expect(payload == {"seed": 42, "metric": 0.5}, "NumPy audit scalars changed")
+
+
+def test_stage_outputs_cleans_temporary_directory_on_serialization_failure(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "ACB_1d"
+    with pytest.raises(TypeError, match="Unsupported audit JSON type"):
+        benchmark.stage_outputs(output, [], "report\n", {"bad": object()})
+    _expect(not output.exists(), "Failed staging created an official output directory")
+    _expect(
+        not list(tmp_path.glob(".ACB_1d.staged-*")),
+        "Failed staging left a partial temporary directory",
+    )
 
 
 def test_failure_audit_does_not_create_partial_official_directory(
