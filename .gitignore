@@ -43,6 +43,7 @@ mlruns/
 outputs/
 artifacts/predictions/
 artifacts/metrics/
+artifacts/benchmarks/
 results/*.csv
 mlflow.db
 data/raw/

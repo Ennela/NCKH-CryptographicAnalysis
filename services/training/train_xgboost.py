@@ -39,6 +39,7 @@ logger = logging.getLogger(__name__)
 
 MODEL_NAME = "xgboost"
 TARGET_COLUMN = "next_close"
+HORIZON = 1
 DEFAULT_N_TRIALS = 1
 DEFAULT_SEED = 42
 EARLY_STOPPING_ROUNDS = 50
@@ -170,7 +171,7 @@ def load_dataset_metadata(
 ) -> DatasetMetadata:
     """Read and validate the locked dataset identity and target contract."""
     payload = json.loads(contract_path.read_text(encoding="utf-8"))
-    if payload.get("target") != {"mode": TARGET_COLUMN, "horizon": 1}:
+    if payload.get("target") != {"mode": TARGET_COLUMN, "horizon": HORIZON}:
         raise ValueError("XGBoost requires target next_close with horizon 1.")
     dataset_version = str(payload.get("dataset_version", ""))
     snapshot_name = str(payload.get("source_snapshot_name", ""))
@@ -609,6 +610,8 @@ def log_training_run(
         "test_manifest_sha256": manifest_hash,
         "symbol": symbol,
         "timeframe": timeframe,
+        "model": MODEL_NAME,
+        "horizon": HORIZON,
         "seed": seed,
         "n_trials": n_trials,
         "feature_list": ",".join(FEATURE_LIST),
