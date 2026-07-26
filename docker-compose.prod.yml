@@ -57,6 +57,46 @@ services:
       redis:
         condition: service_healthy
 
+  celery-worker:
+    build:
+      context: .
+      dockerfile: services/ingestion/Dockerfile
+    container_name: forecast_celery_worker_prod
+    restart: always
+    command: celery -A celery_app worker --loglevel=info
+    environment:
+      - ENV=production
+      - DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://redis:6379/0
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - SENTRY_DSN=${SENTRY_DSN}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery-beat:
+    build:
+      context: .
+      dockerfile: services/ingestion/Dockerfile
+    container_name: forecast_celery_beat_prod
+    restart: always
+    command: celery -A celery_app beat --loglevel=info
+    environment:
+      - ENV=production
+      - DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://redis:6379/0
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - SENTRY_DSN=${SENTRY_DSN}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   training:
     build:
       context: .
@@ -103,6 +143,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      target: prod
       args:
         - NEXT_PUBLIC_API_URL=/api/v1
     container_name: forecast_frontend_prod

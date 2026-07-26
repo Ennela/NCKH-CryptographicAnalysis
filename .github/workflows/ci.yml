@@ -85,3 +85,32 @@ jobs:
       - name: Check Compose Syntax
         run: |
           docker compose config
+
+  frontend-build:
+    name: Frontend Build
+    runs-on: ubuntu-latest
+    env:
+      # Dummy values so `next build` can inline NEXT_PUBLIC_* vars
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXT_PUBLIC_API_KEY: ci_dummy_api_key
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          # NOTE: npm cache disabled — frontend/package-lock.json does not exist yet.
+          # Once a lockfile is committed, enable:
+          #   cache: npm
+          #   cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        # No package-lock.json yet, so `npm ci` is not usable — use `npm install`
+        run: npm install --legacy-peer-deps
+
+      - name: Build Next.js app
+        working-directory: frontend
+        run: npm run build
