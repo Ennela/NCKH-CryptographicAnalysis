@@ -77,7 +77,8 @@ Contract này khóa:
 
 - dataset version
 - snapshot source name
-- snapshot fingerprint (`null` trong Phase 1, hex string sau khi nhóm trưởng khóa)
+- snapshot fingerprint (đã được nhóm trưởng khóa, xem mục "Checksum và
+  Fingerprint" bên dưới)
 - danh sách symbol stock/crypto
 - timeframe được phép dùng
 - start/end timestamp
@@ -105,16 +106,24 @@ dùng sai data.
 
 Hiện có hai cách đọc dữ liệu training cần phân biệt:
 
-- **Cách A — `train.py` (cũ, dùng cho các model khác):** đọc contract theo luồng
-  đã mô tả ở trên và sử dụng dữ liệu trong DB local.
-- **Cách B — `train_xgboost.py` (mới, chỉ dùng cho XGBoost):** gọi
+- **Cách A — `train.py` (legacy, đọc DB):** đọc contract theo luồng đã mô tả ở
+  trên và sử dụng dữ liệu trong DB local. Đường này được giữ lại cho tương
+  thích; các entrypoint benchmark chính thức KHÔNG dùng đường này.
+- **Cách B — entrypoint snapshot riêng của từng model (chuẩn benchmark):** cả
+  bốn model đều đã có entrypoint độc lập đọc locked snapshot —
+  `train_xgboost.py`, `train_random_forest.py`, `train_gru.py`,
+  `train_arima.py` (thư mục `services/training/`). Mỗi entrypoint gọi
   `assert_locked_dataset()` rồi `load_full()` qua `shared/dataset/loader.py` để
   đọc trực tiếp locked snapshot tại
   `data/snapshots/<source_snapshot_name>/*.csv.gz`, không đọc dữ liệu training từ
-  DB local. Chạy entrypoint này từ thư mục gốc của repo bằng lệnh:
+  DB local. Chạy từ thư mục gốc của repo bằng lệnh (thay `train_xgboost` bằng
+  entrypoint tương ứng):
 
   ```bash
   python -m services.training.train_xgboost --ticker <ticker> --timeframe <tf>
+  python -m services.training.train_random_forest --ticker <ticker> --timeframe <tf>
+  python -m services.training.train_gru --ticker <ticker> --timeframe <tf>
+  python -m services.training.train_arima --ticker <ticker> --timeframe <tf>
   ```
 
 Sau khi import snapshot, mỗi thành viên nên kiểm tra:
@@ -157,8 +166,16 @@ file gzip có thể khác do metadata nén, nên checksum có thể khác. Mục
 checksum là verify tính toàn vẹn của file snapshot đã chia sẻ, không phải verify
 re-export deterministic.
 
-`snapshot_fingerprint` trong `configs/group_dataset.json` có 2 trạng thái:
+`snapshot_fingerprint` trong `configs/group_dataset.json` **đã được khóa**
+(trạng thái Phase 2). Giá trị hiện tại:
 
-- `null`: snapshot chính thức chưa được khóa fingerprint (Phase 1).
-- Hex string: snapshot đã được khóa. Nhóm trưởng điền giá trị này sau khi export
-  `ohlcv_full_current` chính thức trong Phase 2.
+```text
+381cd2ee9054a5728a694f6f1df7b952f70c2f40d8e0664c59e6414ff9c2d6d2
+```
+
+Trước đây (Phase 1) trường này để `null` trong khi chờ nhóm trưởng export
+snapshot `ohlcv_full_current` chính thức. Từ khi contract được khóa (commit
+`4b660b7`, 09/07/2026), mọi lần load qua `assert_locked_dataset()` sẽ so khớp
+fingerprint của snapshot local với giá trị trên và fail sớm nếu lệch. KHÔNG tự
+sửa giá trị này; nếu snapshot chính thức đổi, nhóm trưởng là người cập nhật
+contract kèm thông báo cho cả nhóm.

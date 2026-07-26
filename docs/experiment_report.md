@@ -126,6 +126,10 @@ vào Git. MLflow evaluator run cuối là
 `f082a0252d7042f2a599b9554b2e68e0`; đây là evidence run, không phải prediction
 model, không được register hoặc promote.
 
+Bản sao byte-identical của ba output trên đã được commit vào Git tại
+`docs/evidence/ACB_1d/` (kèm README ghi provenance và SHA-256 checksum) để
+chuỗi bằng chứng không phụ thuộc vào MLflow volume của một máy cá nhân.
+
 Lệnh tái lập:
 
 ```bash
@@ -191,9 +195,15 @@ các ràng buộc phạm vi mà người đọc cần biết trước khi trích
   giai đoạn thị trường khác.
 - Không có repeated sampling hay kiểm định ý nghĩa thống kê.
 - Kết quả không chứng minh mô hình đứng đầu sẽ tốt nhất trong production.
-- Source commit của hai run mới và evaluator đang ở feature branch; cần
-  post-merge verification trên `develop` trước khi đóng Issue #20.
+- Post-merge verification: evaluator CHƯA được chạy lại trên `develop` sau
+  merge (tương tự quy trình đã làm cho ARIMA tại
+  `reports/validations/issue_19_arima_post_merge.md`). Đây là việc còn lại
+  trước khi trích dẫn kết quả với độ tin cậy cao nhất; khi chạy, tạo thư mục
+  evidence mới thay vì ghi đè `docs/evidence/ACB_1d/`.
 
-Tại thời điểm ghi báo cáo, bốn official run đều hợp lệ và benchmark sẵn sàng
-cho PR review. Issue #20 vẫn để mở cho đến khi hoàn tất CI và post-merge
-verification.
+**Cập nhật trạng thái (26/07/2026):** benchmark đã được merge vào `develop`
+qua PR #32 (merge commit `03f8721`, 24/07/2026). Issue #20 đã đóng ngày
+24/07/2026. Bằng chứng benchmark được commit tại `docs/evidence/ACB_1d/`
+(overview CSV, report Markdown, audit JSON kèm checksum). Bốn official run đều
+hợp lệ tại thời điểm evaluator chạy (23/07/2026); riêng post-merge re-run trên
+`develop` vẫn đang chờ như ghi ở mục hạn chế bên trên.
