@@ -11,6 +11,7 @@ import logging
 import random
 import tempfile
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -47,6 +48,7 @@ XGBOOST_N_JOBS = 1
 STATUS = "preliminary"
 RMSE_TOLERANCE = 1e-12
 SCALER_ARTIFACT_NAME = "standard_scaler.joblib"
+EXPLAIN_ARTIFACT_NAME = "explainability/feature_importance.json"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PREDICTION_ROOT = REPO_ROOT / "artifacts" / "predictions" / MODEL_NAME
 SUMMARY_ROOT = REPO_ROOT / "artifacts" / "metrics" / MODEL_NAME
@@ -653,6 +655,47 @@ def _log_run_artifacts(
             mlflow.log_artifact(str(summary_path), artifact_path="metrics")
 
 
+def build_explainability_payload(
+    model: XGBoostModelWrapper,
+    features: pd.DataFrame,
+) -> dict[str, Any]:
+    """Build the SHAP global-importance payload served by /api/v1/explain.
+
+    Input: the fitted wrapper and the scaled feature frame SHAP is computed
+    on (test split). Output: JSON-safe dict with per-feature XGBoost gain
+    importance and mean |SHAP| across the provided samples.
+    """
+    shap_values = np.asarray(model.calculate_shap_values(features))
+    mean_abs_shap = np.abs(shap_values).mean(axis=0)
+    importances = model.get_feature_importances(list(features.columns))
+    return {
+        "method": "shap_tree_explainer",
+        "model": MODEL_NAME,
+        "feature_list": list(features.columns),
+        "n_samples": int(len(features)),
+        "features": [
+            {
+                "feature": name,
+                "importance": float(importances[name]),
+                "mean_abs_shap": float(mean_abs_shap[index]),
+            }
+            for index, name in enumerate(features.columns)
+        ],
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _log_explainability_artifact(
+    run_id: str,
+    model: XGBoostModelWrapper,
+    features: pd.DataFrame,
+) -> None:
+    """Attach the SHAP payload to the run for the inference /explain endpoint."""
+    payload = build_explainability_payload(model, features)
+    with mlflow.start_run(run_id=run_id):
+        mlflow.log_dict(payload, EXPLAIN_ARTIFACT_NAME)
+
+
 def _validate_test_alignment(
     data: ScaledDataset,
     manifest: pd.DataFrame,
@@ -740,6 +783,7 @@ def run_training(args: argparse.Namespace) -> str:
         args.seed,
         data.scaler,
     )
+    _log_explainability_artifact(run_id, model, data.X_test)
     logger.info(
         "XGBoost benchmark completed: run_id=%s manifest=%s samples=%d",
         run_id,
