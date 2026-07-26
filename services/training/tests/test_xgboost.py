@@ -642,6 +642,14 @@ def test_explainability_artifact_is_logged(
     def fake_log_dict(payload: dict[str, object], artifact_file: str) -> None:
         logged[artifact_file] = payload
 
+    class _FakeTreeExplainer:
+        def __init__(self, model: object) -> None:
+            self.model = model
+
+        def shap_values(self, values: pd.DataFrame) -> np.ndarray:
+            return np.zeros((len(values), values.shape[1]), dtype=float)
+
+    monkeypatch.setattr(xgboost_model_module.shap, "TreeExplainer", _FakeTreeExplainer)
     monkeypatch.setattr(train_xgboost.mlflow, "start_run", fake_start_run)
     monkeypatch.setattr(train_xgboost.mlflow, "log_dict", fake_log_dict)
 
