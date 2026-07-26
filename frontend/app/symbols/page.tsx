@@ -2,25 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Calendar, ArrowDownWideNarrow, Loader2, AlertCircle, Database } from "lucide-react";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "generate_a_secure_long_random_string_here";
-
-interface SymbolInfo {
-  ticker: string;
-  asset_class: string;
-  exchange_code: string;
-  company_name: string | null;
-}
-
-interface CandleRow {
-  ts: string;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume: number;
-}
+import { fetchSymbols, fetchOhlcv, timeframeForAssetClass, type SymbolInfo, type CandleRow } from "@/lib/api";
 
 export default function SymbolsPage() {
   const [symbols, setSymbols] = useState<SymbolInfo[]>([]);
@@ -29,35 +11,31 @@ export default function SymbolsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [symbolsLoading, setSymbolsLoading] = useState(true);
+  const [symbolsError, setSymbolsError] = useState<string | null>(null);
 
-  // Fetch symbol list on mount
-  useEffect(() => {
-    async function fetchSymbols() {
-      try {
-        const res = await fetch(`${API_URL}/api/v1/symbols`, {
-          headers: { "X-API-Key": API_KEY },
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data: SymbolInfo[] = await res.json();
-        setSymbols(data);
-        if (data.length > 0) {
-          setSelectedSymbol(data[0].ticker);
-        }
-      } catch (err) {
-        console.error("Failed to load symbols:", err);
-        // Fallback to hardcoded list when API is unavailable
-        const fallback: SymbolInfo[] = [
-          { ticker: "BTCUSDT", asset_class: "crypto", exchange_code: "BINANCE", company_name: null },
-          { ticker: "FPT", asset_class: "stock", exchange_code: "HOSE", company_name: "Công ty Cổ phần FPT" },
-        ];
-        setSymbols(fallback);
-        setSelectedSymbol(fallback[0].ticker);
-      } finally {
-        setSymbolsLoading(false);
+  // Fetch symbol list on mount (and on retry)
+  const loadSymbols = useCallback(async () => {
+    setSymbolsLoading(true);
+    setSymbolsError(null);
+    try {
+      const data = await fetchSymbols();
+      setSymbols(data);
+      if (data.length > 0) {
+        setSelectedSymbol((prev) => (prev && data.some((s) => s.ticker === prev) ? prev : data[0].ticker));
       }
+    } catch (err) {
+      // No hardcoded fallback: surface the failure so a down API is visible.
+      setSymbolsError(err instanceof Error ? err.message : "Lỗi kết nối API");
+      setSymbols([]);
+      setSelectedSymbol("");
+    } finally {
+      setSymbolsLoading(false);
     }
-    fetchSymbols();
   }, []);
+
+  useEffect(() => {
+    loadSymbols();
+  }, [loadSymbols]);
 
   // Fetch OHLCV when selected symbol changes
   const fetchOHLCV = useCallback(async (ticker: string) => {
@@ -68,22 +46,10 @@ export default function SymbolsPage() {
 
     // Determine timeframe from asset class
     const sym = symbols.find((s) => s.ticker === ticker);
-    const timeframe = sym?.asset_class === "crypto" ? "1h" : "1d";
+    const timeframe = timeframeForAssetClass(sym?.asset_class);
 
     try {
-      const params = new URLSearchParams({
-        ticker,
-        timeframe,
-        limit: "50",
-      });
-      const res = await fetch(`${API_URL}/api/v1/ohlcv?${params}`, {
-        headers: { "X-API-Key": API_KEY },
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.detail || `HTTP ${res.status}`);
-      }
-      const data: CandleRow[] = await res.json();
+      const data = await fetchOhlcv(ticker, timeframe, 50);
       setCandles(data);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Lỗi kết nối API";
@@ -142,6 +108,23 @@ export default function SymbolsPage() {
                 <div className="flex items-center gap-2 text-slate-500 text-sm py-4 justify-center">
                   <Loader2 className="w-4 h-4 animate-spin" />
                   <span>Đang tải...</span>
+                </div>
+              ) : symbolsError ? (
+                <div className="flex flex-col items-center gap-2 py-4 text-center">
+                  <AlertCircle className="w-6 h-6 text-glowRose" />
+                  <span className="text-glowRose text-xs font-semibold">Không thể tải danh sách mã</span>
+                  <span className="text-slate-500 text-xs">{symbolsError}</span>
+                  <button
+                    onClick={loadSymbols}
+                    className="mt-1 px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 text-xs border border-darkBorder hover:bg-slate-700 transition-all"
+                  >
+                    Thử lại
+                  </button>
+                </div>
+              ) : symbols.length === 0 ? (
+                <div className="flex flex-col items-center gap-2 py-4 text-center">
+                  <Database className="w-6 h-6 text-slate-600" />
+                  <span className="text-slate-500 text-xs">Chưa có mã tài sản nào trong hệ thống.</span>
                 </div>
               ) : (
                 symbols.map((sym) => (
@@ -211,7 +194,7 @@ export default function SymbolsPage() {
           )}
 
           {/* Empty State */}
-          {!loading && !error && candles.length === 0 && (
+          {!loading && !error && selectedSymbol && candles.length === 0 && (
             <div className="glass-panel rounded-xl border border-darkBorder p-12 flex flex-col items-center gap-3">
               <Database className="w-8 h-8 text-slate-600" />
               <span className="text-slate-500 text-sm">Chưa có dữ liệu OHLCV cho mã {selectedSymbol}.</span>

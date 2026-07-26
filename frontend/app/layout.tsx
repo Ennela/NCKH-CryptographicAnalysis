@@ -4,8 +4,8 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Hệ Thống Phân Tích & Dự Báo Cổ Phiếu - Tiền Số | NCKH",
-  description: "Trực quan hóa chỉ số tài chính, chạy mô hình học máy LSTM, GRU, ARIMA, XGBoost và giải thích kết quả bằng SHAP cho thị trường Việt Nam & Crypto.",
-  keywords: "dự báo giá cổ phiếu, vnstock, crypto forecast, lstm forecast, xgboost shap",
+  description: "Trực quan hóa chỉ số tài chính, chạy mô hình học máy ARIMA, XGBoost, Random Forest, GRU và giải thích kết quả bằng SHAP cho thị trường Việt Nam & Crypto.",
+  keywords: "dự báo giá cổ phiếu, vnstock, crypto forecast, gru forecast, xgboost shap",
   authors: [{ name: "Student Agile Team" }],
 };
 
