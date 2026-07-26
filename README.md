@@ -126,10 +126,6 @@ NCKH/
 │   ├── Dockerfile
 │   └── package.json
 │
-├── api/                              # Collector cũ (đang gộp vào services/ingestion)
-│   ├── binance_fastapi/              #   ↳ API thu thập Binance (legacy)
-│   └── vnstock_fastapi/              #   ↳ API thu thập vnstock (legacy)
-│
 ├── scripts/
 │   ├── backfill.py                   # Backfill dữ liệu lịch sử
 │   └── seed_db.py                    # Seed dữ liệu mẫu vào DB
