@@ -99,6 +99,14 @@ Canonical Naive baseline dùng `predicted_close = current_close`:
 |---:|---:|---:|---:|
 | 0.2669230769230771 | 0.3902169022085419 | 1.2888783803605892 | 0.10256410256410256 |
 
+> **Lưu ý về Naive directional accuracy.** Naive dự báo
+> `predicted_close = current_close`, nên `sign(predicted − current) = 0` theo
+> định nghĩa; chỉ số này chỉ được tính "đúng" ở các phiên giá đóng cửa không
+> đổi (8/78 phiên của holdout này). Giá trị `0.1026` vì vậy là hằng số tham
+> chiếu sinh ra từ công thức đã khóa trong protocol, không mang cùng cách diễn
+> giải "khả năng đoán hướng" như directional accuracy của model, và không nên
+> được so sánh trực tiếp với DA của bốn model.
+
 Theo primary metric RMSE, ARIMA đứng đầu và chỉ cải thiện
 `0.5163771224311596%` so với Naive. Random Forest, XGBoost và GRU không vượt
 Naive trên manifest này; improvement RMSE của cả ba đều âm. ARIMA cũng không
@@ -134,7 +142,50 @@ Evaluator được chạy hai lần trên cùng source commit. Checksum của
 giống sau khi chuẩn hóa duy nhất trường `generated_at`. Metric, eligibility,
 ranking và toàn bộ nội dung cốt lõi không thay đổi.
 
-## 8. Hạn chế và kết luận
+## 8. Threats to validity
+
+Mục này liệt kê các giới hạn ảnh hưởng trực tiếp đến cách diễn giải bảng xếp
+hạng ở mục 6. Không mục nào dưới đây vi phạm quality gate của protocol; đây là
+các ràng buộc phạm vi mà người đọc cần biết trước khi trích dẫn kết quả.
+
+1. **XGBoost chỉ dùng một Optuna trial cố định theo seed.** Giá trị mặc định
+   `--n-trials` là `1` (`services/training/train_xgboost.py`), nên bộ
+   hyperparameters chính thức là một cấu hình được TPE sampler (seed 42) lấy
+   mẫu duy nhất từ search space — không phải giá trị mặc định của thư viện,
+   cũng không phải kết quả tuning đã hội tụ. Kết quả của XGBoost phản ánh
+   "một cấu hình XGBoost cụ thể", không phản ánh năng lực tối đa của thuật
+   toán.
+2. **Random Forest không dùng validation để tuning.** Model dùng bộ
+   hyperparameters cố định (`DEFAULT_RANDOM_FOREST_PARAMS`) và chỉ fit trên
+   train; validation split được nạp nhưng không tham gia bất kỳ quyết định
+   nào của pipeline.
+3. **ARIMA dùng order cố định `(1, 1, 1)`,** không chọn order bằng AIC/BIC
+   hoặc validation. Validation chỉ được dùng để lăn trạng thái (rolling
+   state) tới biên test. ARIMA(1,1,1) trên chuỗi giá có hành vi gần
+   random walk, nên kết quả bám sát Naive baseline là điều dự kiến được.
+4. **Bốn model không dùng cùng feature representation.** XGBoost dùng 19
+   feature kỹ thuật, Random Forest dùng 16 feature (gồm OHLCV thô), GRU chỉ
+   dùng 2 feature (`close`, `moving_average_7`) dưới dạng sequence 30 bước,
+   ARIMA là univariate trên `close`. Đây là lựa chọn chủ đích theo mô hình
+   "mỗi thành viên sở hữu trọn một pipeline"; do đó benchmark so sánh các
+   **pipeline hoàn chỉnh**, không so sánh các thuật toán trên cùng một input.
+5. **ARIMA cập nhật trạng thái tuần tự trong test, khác cơ chế với ba model
+   còn lại nhưng vẫn tuân thủ cùng giới hạn thông tin theo thời gian.** Sau
+   mỗi bước dự báo, ARIMA append quan sát thực tế với `refit=False` (tham số
+   giữ nguyên, chỉ trạng thái tiến lên). Ba model còn lại đóng băng tham số
+   sau train/validation, nhưng feature và sequence tại mỗi thời điểm `t`
+   cũng được tính từ giá thực tế `≤ t` của chuỗi liên tục. Mọi dự báo tại
+   `t` của cả bốn model đều chỉ dùng thông tin có tại `t`; không model nào
+   nhìn thấy tương lai. Khác biệt nằm ở cơ chế tiêu thụ lịch sử, không phải
+   ở lượng thông tin.
+6. **Kết quả chỉ dựa trên 78 mẫu test của một mã (ACB 1d) trong một giai
+   đoạn thị trường.** Không có repeated sampling, không có kiểm định ý nghĩa
+   thống kê. Chênh lệch nhỏ giữa các hạng liền kề (ví dụ RMSE 0.6368 của
+   Random Forest so với 0.6484 của XGBoost) không nên được diễn giải thành
+   ưu thế tổng quát của model này so với model kia; thứ hạng 2–4 nên được
+   đọc là "không phân biệt được về mặt thống kê trên holdout này".
+
+## 9. Hạn chế và kết luận
 
 - Đây là một holdout duy nhất cho ACB 1d, không bao phủ asset, timeframe hoặc
   giai đoạn thị trường khác.
