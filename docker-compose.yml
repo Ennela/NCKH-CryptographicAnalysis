@@ -69,6 +69,50 @@ services:
       redis:
         condition: service_healthy
 
+  celery-worker:
+    build:
+      context: .
+      dockerfile: services/ingestion/Dockerfile
+    container_name: forecast_celery_worker
+    working_dir: /app/services/ingestion
+    command: celery -A celery_app worker --loglevel=info
+    volumes:
+      - .:/app
+    environment:
+      - ENV=development
+      - PYTHONPATH=/app
+      - DATABASE_URL=postgresql+psycopg2://postgres:postgres_secure_pass_123@postgres:5432/stock_crypto_db
+      - REDIS_URL=redis://redis:6379/0
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery-beat:
+    build:
+      context: .
+      dockerfile: services/ingestion/Dockerfile
+    container_name: forecast_celery_beat
+    working_dir: /app/services/ingestion
+    command: celery -A celery_app beat --loglevel=info
+    volumes:
+      - .:/app
+    environment:
+      - ENV=development
+      - PYTHONPATH=/app
+      - DATABASE_URL=postgresql+psycopg2://postgres:postgres_secure_pass_123@postgres:5432/stock_crypto_db
+      - REDIS_URL=redis://redis:6379/0
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   training:
     build:
       context: .
@@ -120,12 +164,14 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      target: dev
     container_name: forecast_frontend
     volumes:
       - ./frontend:/app
       - /app/node_modules
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      - NEXT_PUBLIC_API_KEY=${API_KEY_SECRET}
       - NODE_ENV=development
     ports:
       - "3000:3000"
