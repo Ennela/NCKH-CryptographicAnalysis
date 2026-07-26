@@ -19,11 +19,20 @@ from shared.config.settings import settings
 from shared.db.session import SyncSessionLocal, AsyncSessionLocal
 
 
+def pytest_configure(config: pytest.Config) -> None:
+    config.addinivalue_line("markers", "no_db: test does not need PostgreSQL")
+
+
 @pytest.fixture(scope="session", autouse=True)
-def setup_test_db() -> None:
+def setup_test_db(request: pytest.FixtureRequest) -> bool:
     """
     Create the test database and run init.sql once per session.
     """
+    if request.session.items and all(
+        item.get_closest_marker("no_db") is not None for item in request.session.items
+    ):
+        return False
+
     # 1. Connect to postgres database to check/create stock_crypto_db_test
     conn = psycopg2.connect(
         dbname="postgres",
@@ -60,6 +69,7 @@ def setup_test_db() -> None:
     test_cursor.execute(init_sql)
     test_cursor.close()
     test_conn.close()
+    return True
 
 
 @pytest.fixture
@@ -92,16 +102,22 @@ async def async_db() -> AsyncGenerator[AsyncSession, None]:
 
 
 @pytest.fixture(autouse=True)
-async def cleanup_async_engine():
+async def cleanup_async_engine(request: pytest.FixtureRequest):
     yield
+    if request.node.get_closest_marker("no_db") is not None:
+        return
+
     from shared.db.session import async_engine
 
     await async_engine.dispose()
 
 
 @pytest.fixture(scope="session", autouse=True)
-def dispose_engines(setup_test_db) -> Generator[None, None, None]:
+def dispose_engines(setup_test_db: bool) -> Generator[None, None, None]:
     yield
+    if not setup_test_db:
+        return
+
     from shared.db.session import sync_engine
 
     sync_engine.dispose()

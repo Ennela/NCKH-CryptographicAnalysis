@@ -1,4 +1,9 @@
-.PHONY: help dev-up dev-down prod-up prod-down test lint format migrate-generate migrate-run backfill seed
+.PHONY: help dev-up dev-down prod-up prod-down test lint format migrate-generate migrate-run backfill seed check-dataset train-official export-snapshot
+
+TICKER ?= BTCUSDT
+MODEL ?= xgboost
+RESOLUTION ?= 1d
+SNAPSHOT_NAME ?= ohlcv_full_current
 
 # Default action
 help:
@@ -14,6 +19,9 @@ help:
 	@echo "  make migrate-run       Run database migrations"
 	@echo "  make backfill          Run historical backfilling script"
 	@echo "  make seed              Run database seed with tickers and dummy data"
+	@echo "  make check-dataset     Verify local DB matches group_dataset.json"
+	@echo "  make train-official    Train with the official dataset contract"
+	@echo "  make export-snapshot   Export a named dataset snapshot"
 
 dev-up:
 	docker-compose -f docker-compose.yml up --build
@@ -47,3 +55,12 @@ backfill:
 
 seed:
 	docker-compose exec ingestion python scripts/seed_db.py
+
+check-dataset:
+	docker compose run --rm training python /app/scripts/check_group_dataset.py
+
+train-official: check-dataset
+	docker compose run --rm training python train.py --ticker $(TICKER) --model $(MODEL) --resolution $(RESOLUTION) --dataset-config configs/group_dataset.json
+
+export-snapshot:
+	docker compose run --rm training python /app/scripts/export_dataset_snapshot.py --output-dir /app/data/snapshots --snapshot-name $(SNAPSHOT_NAME)

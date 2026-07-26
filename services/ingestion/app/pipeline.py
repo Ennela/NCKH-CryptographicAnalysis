@@ -55,7 +55,8 @@ def run_clean_and_store(
     """
     logger.info(
         "Bắt đầu pipeline clean & store cho symbol_id=%d, timeframe=%s",
-        symbol_id, timeframe,
+        symbol_id,
+        timeframe,
     )
 
     try:
@@ -101,7 +102,8 @@ def run_clean_and_store(
             if not raw_rows:
                 logger.info(
                     "Không tìm thấy bản ghi mới nào cho symbol_id=%d, timeframe=%s",
-                    symbol_id, timeframe,
+                    symbol_id,
+                    timeframe,
                 )
                 return {
                     "input_rows": 0,
@@ -121,7 +123,8 @@ def run_clean_and_store(
             if cleaned_df.empty:
                 logger.warning(
                     "DataFrame rỗng sau khi làm sạch cho symbol_id=%d, timeframe=%s",
-                    symbol_id, timeframe,
+                    symbol_id,
+                    timeframe,
                 )
                 return report.to_dict()
 
@@ -132,26 +135,28 @@ def run_clean_and_store(
                 if isinstance(ts_val, pd.Timestamp):
                     ts_val = ts_val.to_pydatetime()
 
-                clean_rows.append({
-                    "symbol_id": int(row["symbol_id"]),
-                    "timeframe": str(row["timeframe"]),
-                    "ts": ts_val,
-                    "open": Decimal(str(row["open"])),
-                    "high": Decimal(str(row["high"])),
-                    "low": Decimal(str(row["low"])),
-                    "close": Decimal(str(row["close"])),
-                    "volume": Decimal(str(row["volume"])),
-                    "vwap": (
-                        Decimal(str(row["vwap"]))
-                        if "vwap" in row and pd.notna(row["vwap"])
-                        else None
-                    ),
-                    "trade_count": (
-                        int(row["trade_count"])
-                        if "trade_count" in row and pd.notna(row["trade_count"])
-                        else None
-                    ),
-                })
+                clean_rows.append(
+                    {
+                        "symbol_id": int(row["symbol_id"]),
+                        "timeframe": str(row["timeframe"]),
+                        "ts": ts_val,
+                        "open": Decimal(str(row["open"])),
+                        "high": Decimal(str(row["high"])),
+                        "low": Decimal(str(row["low"])),
+                        "close": Decimal(str(row["close"])),
+                        "volume": Decimal(str(row["volume"])),
+                        "vwap": (
+                            Decimal(str(row["vwap"]))
+                            if "vwap" in row and pd.notna(row["vwap"])
+                            else None
+                        ),
+                        "trade_count": (
+                            int(row["trade_count"])
+                            if "trade_count" in row and pd.notna(row["trade_count"])
+                            else None
+                        ),
+                    }
+                )
 
             # 7. Upsert vào market.ohlcv
             upsert_ohlcv(db, clean_rows)
@@ -176,13 +181,18 @@ def run_clean_and_store(
 
             logger.info(
                 "Xử lý thành công %d/%d bản ghi cho symbol_id=%d (%s)",
-                report.output_rows, report.input_rows, symbol_id, timeframe,
+                report.output_rows,
+                report.input_rows,
+                symbol_id,
+                timeframe,
             )
             return report.to_dict()
 
     except Exception as e:
         logger.error(
             "Gặp lỗi trong quy trình clean & store cho symbol_id=%d, timeframe=%s: %s",
-            symbol_id, timeframe, str(e),
+            symbol_id,
+            timeframe,
+            str(e),
         )
         raise e

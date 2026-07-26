@@ -1,347 +1,148 @@
-# Báo Cáo Thí Nghiệm: So Sánh Hiệu Năng Các Mô Hình Machine Learning Cho Bài Toán Dự Báo Giá Tài Sản Tài Chính
+# Báo cáo thí nghiệm Issue #20: benchmark bốn mô hình trên ACB 1d
 
-> **Nguồn dữ liệu:** VNStock (Cổ phiếu Việt Nam) + Binance (Tiền mã hóa)
+## 1. Phạm vi và mục tiêu
 
----
+Báo cáo này ghi nhận benchmark chính thức giữa XGBoost, Random Forest, GRU và
+ARIMA cho bài toán dự báo giá đóng cửa kế tiếp của cổ phiếu ACB. Mục tiêu là
+so sánh bốn run trên cùng một holdout đã khóa, không phải chứng minh ưu thế
+thống kê tổng quát của một mô hình.
 
-## 1. Mục Tiêu Thí Nghiệm
+Quy trình được thực hiện theo workflow `single-contributor`: cùng một người
+triển khai evaluator, chạy pilot, kiểm tra artifact và ghi nhận bằng chứng.
+Completion gate dựa trên test tự động, provenance của commit, manifest, artifact
+reload, metric được tính lại độc lập và output xác định.
 
-Đánh giá và so sánh hiệu năng của các mô hình thuộc các nhóm khác nhau trong Machine Learning nhằm xác định mô hình phù hợp nhất cho bài toán **dự báo giá tài sản tài chính**.
+## 2. Benchmark contract
 
-### 1.1 Câu hỏi nghiên cứu
+| Thuộc tính | Giá trị |
+|---|---|
+| Dataset version | `group_dataset_v1` |
+| Snapshot | `ohlcv_full_current` |
+| Symbol / timeframe | `ACB` / `1d` |
+| Target / horizon | `next_close` / `1` |
+| Split / seed | `test` / `42` |
+| Số prediction | `78` |
+| Canonical test manifest SHA-256 | `62d82e13b48f337623235e20c2412d435395fef46fea5a24776ea895d1c8b828` |
+| Thời điểm evaluator | `2026-07-23T14:30:15Z` |
+| Môi trường | Python 3.11.15, MLflow 2.11.3, NumPy 1.26.4, Pandas 2.3.3 |
 
-| # | Câu hỏi | Phương pháp trả lời |
-|---|---------|---------------------|
-| Q1 | Mô hình nào cho độ chính xác dự báo cao nhất? | So sánh 5 metrics (MAE, RMSE, MAPE, R², DA) trên tập test |
-| Q2 | Mô hình Deep Learning (LSTM) có outperform mô hình truyền thống (LR, RF, LightGBM)? | So sánh trực tiếp metrics giữa LSTM vs. nhóm Traditional ML |
-| Q3 | Feature engineering ảnh hưởng thế nào so với lựa chọn mô hình? | Ablation study: Raw features vs. Engineered features trên cả 4 models |
+Evaluator tải lại locked dataset bằng shared loader, tự tạo manifest và so sánh
+đủ 78 dòng theo `input_ts`, `target_ts`, `current_close` và `actual_close`.
+Không run nào được chọn theo “latest”, filesystem order hoặc registry stage.
 
----
+## 3. Official runs và eligibility
 
-## 2. Thiết Kế Thí Nghiệm
+| Model | MLflow run ID | Source commit | Artifact reload | Eligibility |
+|---|---|---|---|---|
+| XGBoost | `55ea7a8c7e3a49ed813ac6294fb26a80` | `e826aea5a06f4a2adb57f7aa3967cf03f3ce5471` | PASS | `valid` |
+| Random Forest | `db37627439134d56a250c8b898969d77` | `e826aea5a06f4a2adb57f7aa3967cf03f3ce5471` | PASS | `valid` |
+| GRU | `65f56eab440e4fa9a5192bfaddbcc96e` | `8a0d2dd3ec7a749aec2fedd8516e835390a9243d` | PASS | `valid` |
+| ARIMA | `f1ef301caa064c858da753982f1564dc` | `ab1cf9af355211192c923c55aa042ff0413fdf6a` | PASS | `valid` |
 
-### 2.1 Tổng quan pipeline
+XGBoost và Random Forest được chạy lại từ commit đã ghi nhận sau khi worktree
+sạch. GRU và ARIMA được tái sử dụng vì live verification vẫn pass. ARIMA
+registry version 3 vẫn ở `Production`, trạng thái `READY`; evaluator không thay
+đổi registry.
 
-```
-┌──────────────┐    ┌──────────────────┐    ┌──────────────────┐    ┌────────────────┐    ┌────────────┐
-│  Data Source  │───▶│  Preprocessing   │───▶│  Feature Engine  │───▶│    Training     │───▶│ Evaluation │
-│  VNStock      │    │  - Missing vals  │    │  - Technical     │    │ - Linear Reg   │    │ - MAE      │
-│  Binance      │    │  - Normalization │    │  - Lag features  │    │ - Random Forest│    │ - RMSE     │
-└──────────────┘    │  - Train/Test    │    │  - Indicators    │    │ - LightGBM     │    │ - DA       │
-                    └──────────────────┘    └──────────────────┘    │ - LSTM         │    └────────────┘
-                                                                   └────────────────┘
-```
+Các candidate cũ không được dùng làm official evidence:
 
-### 2.2 Nguồn dữ liệu
+| Model | Run ID cũ | Kết quả |
+|---|---|---|
+| XGBoost | `ce44fb8c42f2440abc113d68f85ffeca` | Excluded: thiếu MLflow params `model` và `horizon` |
+| Random Forest | `fc380e6d985e441684288738e5f277bb` | Excluded: live MLflow artifact tree không đầy đủ |
 
-#### VNStock — Cổ phiếu Việt Nam
+## 4. Validation liên mô hình
 
-| Thuộc tính | Chi tiết |
-|------------|----------|
-| **Thư viện** | `vnstock` (Python) |
-| **Mã cổ phiếu** | VN30 blue-chip: VNM, FPT, VIC, HPG, MBB, ... |
-| **Khoảng thời gian** | 01/01/2020 – 31/12/2025 (~5 năm) |
-| **Tần suất** | Daily (OHLCV) |
-| **Trường dữ liệu** | `Open`, `High`, `Low`, `Close`, `Volume`, `Date` |
+| Gate | Kết quả |
+|---|---|
+| Bốn run có trạng thái `FINISHED` | PASS |
+| Required params và metrics | PASS |
+| Prediction/summary exact schema | PASS |
+| 78 prediction mỗi model | PASS |
+| Canonical manifest hash | PASS |
+| Cross-model row identity | PASS |
+| Model-specific artifact reload | PASS |
+| Metric recomputation với tolerance `1e-12` | PASS |
+| Naive baseline identity | PASS |
+| NaN / `+Inf` / `-Inf` | Không phát hiện |
+| Exclusion trong bốn official run | Không có |
 
-#### Binance — Tiền mã hóa
+XGBoost được reload cùng StandardScaler và feature order. Random Forest được
+reload cùng feature metadata. GRU được strict-load state dict, hai scaler và
+architecture metadata. ARIMA được reload từ pre-test state có `nobs == 444`,
+endogenous history dài 444 và không chứa test history.
 
-| Thuộc tính | Chi tiết |
-|------------|----------|
-| **Thư viện** | `python-binance` hoặc `ccxt` |
-| **Cặp giao dịch** | BTC/USDT, ETH/USDT, BNB/USDT, ... |
-| **Khoảng thời gian** | 01/01/2020 – 31/12/2025 |
-| **Tần suất** | Daily |
-| **Trường dữ liệu** | `Open`, `High`, `Low`, `Close`, `Volume`, `Timestamp` |
+## 5. Quy tắc xếp hạng
 
-### 2.3 Tiền xử lý dữ liệu
+Thứ tự chính thức là:
 
-| Bước | Phương pháp |
-|------|-------------|
-| Xử lý missing values | Forward-fill / Interpolation |
-| Loại bỏ outliers | IQR hoặc Z-score |
-| Chuẩn hóa | MinMaxScaler (cho LSTM), StandardScaler (cho LR, RF, LightGBM) |
-| Chia tập dữ liệu | **Time-based split** — Train 70% / Val 15% / Test 15% |
-| Sliding window (LSTM) | Window size = 30 hoặc 60 ngày |
+1. RMSE tăng dần.
+2. Nếu RMSE bằng nhau, MAE tăng dần.
+3. Nếu RMSE và MAE bằng nhau, Directional Accuracy giảm dần.
+4. Tên model tăng dần chỉ là fallback để output xác định khi mọi metric bằng
+   nhau; đây không phải lợi thế thống kê.
 
-> ⚠️ **Quan trọng:** Dữ liệu tài chính là chuỗi thời gian → bắt buộc dùng **time-based split** (không shuffle) để tránh data leakage.
+Metric không được làm tròn trước validation hoặc ranking.
 
----
+## 6. Kết quả chính thức
 
-## 3. Các Mô Hình Thí Nghiệm
+| Rank | Model | MAE | RMSE | MAPE % | Directional accuracy | Improvement vs Naive RMSE % |
+|---:|---|---:|---:|---:|---:|---:|
+| 1 | ARIMA | 0.27234869637307557 | 0.3882019113976774 | 1.3135850175231933 | 0.5128205128205128 | 0.5163771224311596 |
+| 2 | Random Forest | 0.5256917774782239 | 0.6368350104288949 | 2.5733422799615013 | 0.38461538461538464 | -63.20026293698421 |
+| 3 | XGBoost | 0.48262003678541876 | 0.6483500635961559 | 2.282851875973909 | 0.48717948717948717 | -66.15119948075981 |
+| 4 | GRU | 0.5393094254762704 | 0.7360494889815756 | 2.534783277033477 | 0.47435897435897434 | -88.62573220578025 |
 
-### 3.1 Tổng quan 4 mô hình
+Canonical Naive baseline dùng `predicted_close = current_close`:
 
-```
-Mô hình thí nghiệm
-├── 1. Linear Regression          ← Baseline
-├── 2. Random Forest Regressor    ← Ensemble (Traditional ML)
-├── 3. LightGBM Regressor        ← Gradient Boosting (Traditional ML)
-└── 4. LSTM                       ← Deep Learning
-```
+| Naive MAE | Naive RMSE | Naive MAPE % | Naive directional accuracy |
+|---:|---:|---:|---:|
+| 0.2669230769230771 | 0.3902169022085419 | 1.2888783803605892 | 0.10256410256410256 |
 
-### 3.2 Chi tiết cấu hình
+Theo primary metric RMSE, ARIMA đứng đầu và chỉ cải thiện
+`0.5163771224311596%` so với Naive. Random Forest, XGBoost và GRU không vượt
+Naive trên manifest này; improvement RMSE của cả ba đều âm. ARIMA cũng không
+tốt hơn Naive theo MAE hoặc MAPE, vì vậy kết quả không nên được diễn giải rộng
+hơn tiêu chí ranking và holdout đã định trước.
 
-#### Model 1 — Linear Regression (Baseline)
+## 7. Bằng chứng và khả năng tái lập
 
-| Thuộc tính | Chi tiết |
-|------------|----------|
-| **Vai trò** | Đường cơ sở (baseline) để so sánh |
-| **Thư viện** | `sklearn.linear_model.LinearRegression` |
-| **Hyperparameters** | Mặc định (không tune) |
-| **Ưu điểm** | Nhanh, dễ interpret, baseline rõ ràng |
-| **Nhược điểm** | Giả định tuyến tính, không capture non-linear patterns |
+Ba output được tạo atomically tại:
 
-#### Model 2 — Random Forest Regressor
+- `artifacts/benchmarks/ACB_1d/benchmark_overview.csv`
+- `artifacts/benchmarks/ACB_1d/benchmark_report.md`
+- `artifacts/benchmarks/ACB_1d/benchmark_audit.json`
 
-| Thuộc tính | Chi tiết |
-|------------|----------|
-| **Vai trò** | Ensemble — đại diện cho tree-based methods |
-| **Thư viện** | `sklearn.ensemble.RandomForestRegressor` |
-| **Hyperparameters** | `n_estimators` ∈ {100, 300, 500}, `max_depth` ∈ {10, 20, None}, `min_samples_split` ∈ {2, 5} |
-| **Tuning** | GridSearchCV hoặc RandomizedSearchCV |
-| **Ưu điểm** | Robust với noise, feature importance, ít overfit |
-| **Nhược điểm** | Chậm hơn LightGBM, không capture sequence |
+Các output này được giữ trong local artifact store và MLflow, không force-add
+vào Git. MLflow evaluator run cuối là
+`f082a0252d7042f2a599b9554b2e68e0`; đây là evidence run, không phải prediction
+model, không được register hoặc promote.
 
-#### Model 3 — LightGBM Regressor
+Lệnh tái lập:
 
-| Thuộc tính | Chi tiết |
-|------------|----------|
-| **Vai trò** | Gradient Boosting — state-of-the-art cho tabular data |
-| **Thư viện** | `lightgbm.LGBMRegressor` |
-| **Hyperparameters** | `num_leaves` ∈ {31, 63, 127}, `learning_rate` ∈ {0.01, 0.05, 0.1}, `n_estimators` ∈ {100, 500, 1000} |
-| **Tuning** | Optuna hoặc GridSearchCV |
-| **Ưu điểm** | Nhanh, hiệu quả bộ nhớ, tốt trên tabular data |
-| **Nhược điểm** | Dễ overfit nếu tune sai, không native cho time-series |
-
-#### Model 4 — LSTM (Long Short-Term Memory)
-
-| Thuộc tính | Chi tiết |
-|------------|----------|
-| **Vai trò** | Deep Learning — đại diện cho sequence modeling |
-| **Thư viện** | `tensorflow.keras` hoặc `pytorch` |
-| **Kiến trúc** | Input → LSTM(64) → Dropout(0.2) → LSTM(32) → Dropout(0.2) → Dense(1) |
-| **Hyperparameters** | `units` ∈ {32, 64, 128}, `dropout` ∈ {0.1, 0.2, 0.3}, `sequence_length` ∈ {30, 60} |
-| **Training** | Optimizer: Adam (lr=0.001), Loss: MSE, Epochs: 100, Early Stopping (patience=10), Batch: 32 |
-| **Ưu điểm** | Capture long-term dependencies, tốt cho sequence data |
-| **Nhược điểm** | Cần nhiều data, train chậm, khó interpret |
-
-### 3.3 Tại sao chọn 4 mô hình này?
-
-| Tiêu chí | LR | RF | LightGBM | LSTM |
-|----------|----|----|----------|------|
-| Đại diện cho | Baseline tuyến tính | Ensemble bagging | Gradient boosting | Deep Learning |
-| Độ phức tạp | Thấp | Trung bình | Trung bình–Cao | Cao |
-| Non-linear | ✗ | ✓ | ✓ | ✓ |
-| Sequence-aware | ✗ | ✗ | ✗ | ✓ |
-| Interpretable | ✓✓✓ | ✓✓ | ✓✓ | ✗ |
-
-→ Bốn mô hình tạo thành một **spectrum từ đơn giản → phức tạp**, giúp trả lời câu hỏi: *"Liệu mô hình phức tạp hơn có thực sự tốt hơn?"*
-
----
-
-## 4. Feature Engineering
-
-### 4.1 Hai bộ features (cho Ablation Study — trả lời Q3)
-
-#### Bộ A — Raw Features
-
-```
-[Open, High, Low, Close, Volume]
+```bash
+python -m services.training.benchmark \
+  --xgboost-run-id 55ea7a8c7e3a49ed813ac6294fb26a80 \
+  --random-forest-run-id db37627439134d56a250c8b898969d77 \
+  --gru-run-id 65f56eab440e4fa9a5192bfaddbcc96e \
+  --arima-run-id f1ef301caa064c858da753982f1564dc \
+  --output-dir artifacts/benchmarks/ACB_1d
 ```
 
-#### Bộ B — Engineered Features
+Evaluator được chạy hai lần trên cùng source commit. Checksum của
+`benchmark_overview.csv` giống hoàn toàn; checksum của Markdown và JSON cũng
+giống sau khi chuẩn hóa duy nhất trường `generated_at`. Metric, eligibility,
+ranking và toàn bộ nội dung cốt lõi không thay đổi.
 
-| Nhóm | Features | Mô tả |
-|------|----------|-------|
-| **Price** | Returns, Log Returns | Tỷ suất sinh lời |
-| **Moving Averages** | SMA_7, SMA_14, SMA_30, EMA_12, EMA_26 | Xu hướng giá |
-| **Momentum** | RSI_14, MACD, MACD_signal | Động lượng |
-| **Volatility** | Bollinger Upper/Lower, ATR_14 | Biến động |
-| **Volume** | OBV, Volume_SMA_20 | Khối lượng giao dịch |
-| **Lag** | Close_lag_1 → Close_lag_7 | Giá đóng cửa 1–7 ngày trước |
+## 8. Hạn chế và kết luận
 
-### 4.2 Ablation Matrix
+- Đây là một holdout duy nhất cho ACB 1d, không bao phủ asset, timeframe hoặc
+  giai đoạn thị trường khác.
+- Không có repeated sampling hay kiểm định ý nghĩa thống kê.
+- Kết quả không chứng minh mô hình đứng đầu sẽ tốt nhất trong production.
+- Source commit của hai run mới và evaluator đang ở feature branch; cần
+  post-merge verification trên `develop` trước khi đóng Issue #20.
 
-| Model | Feature Set A (Raw) | Feature Set B (Engineered) | Δ Performance |
-|-------|--------------------|-----------------------------|---------------|
-| Linear Regression | LR_raw | LR_eng | Δ₁ |
-| Random Forest | RF_raw | RF_eng | Δ₂ |
-| LightGBM | LGBM_raw | LGBM_eng | Δ₃ |
-| LSTM | LSTM_raw | LSTM_eng | Δ₄ |
-
-**Phân tích:**
-- Nếu Δ trung bình lớn → **Feature engineering quan trọng hơn model selection**
-- Nếu Δ nhỏ nhưng variance giữa models lớn → **Model selection quan trọng hơn**
-
----
-
-## 5. Metrics Đánh Giá
-
-### 5.1 Năm metrics đánh giá
-
-| # | Metric | Công thức | Ý nghĩa | Vai trò |
-|---|--------|-----------|----------|--------|
-| 1 | **MAE** (Mean Absolute Error) | $\frac{1}{n}\sum\|y_i - \hat{y}_i\|$ | Sai số trung bình tuyệt đối — dễ interpret, đơn vị giống giá gốc | Primary |
-| 2 | **RMSE** (Root Mean Squared Error) | $\sqrt{\frac{1}{n}\sum(y_i - \hat{y}_i)^2}$ | Phạt nặng các sai số lớn — nhạy với outliers | Primary |
-| 3 | **MAPE** (Mean Absolute Percentage Error) | $\frac{100}{n}\sum\|\frac{y_i - \hat{y}_i}{y_i}\|$ | Sai số phần trăm trung bình — dùng so sánh cross-asset (VNStock vs Binance) | Secondary |
-| 4 | **R²** (Coefficient of Determination) | $1 - \frac{SS_{res}}{SS_{tot}}$ | Hệ số xác định — đo mức độ giải thích biến thiên của mô hình | Secondary |
-| 5 | **DA** (Directional Accuracy) | $\frac{1}{n}\sum \mathbb{1}(\text{sign}(\Delta y) = \text{sign}(\Delta \hat{y})) \times 100\%$ | Tỷ lệ dự đoán đúng xu hướng tăng/giảm — quan trọng cho trading | Primary |
-
-### 5.2 Tiêu chí chọn model tốt nhất
-
-```
-Bước 1: Loại model có DA < 50% (tệ hơn random guess)
-Bước 2: Xếp hạng theo RMSE (primary) → MAE (secondary) → DA (tertiary)
-Bước 3: Tham khảo thêm MAPE (để so sánh cross-asset) và R² (goodness of fit)
-Bước 4: Xét trade-off giữa accuracy và training time
-```
-
-### 5.3 Bổ sung
-
-| Metric phụ | Mục đích |
-|------------|----------|
-| **Training Time** | Đánh giá tính khả thi triển khai |
-| **Inference Time** | Tốc độ dự đoán real-time |
-
----
-
-## 6. Kế Hoạch Thực Hiện
-
-### 6.1 Timeline
-
-| Phase | Công việc | Thời gian |
-|-------|-----------|-----------|
-| **1** | Thu thập dữ liệu VNStock + Binance | Tuần 1 |
-| **2** | EDA & Preprocessing | Tuần 1–2 |
-| **3** | Feature Engineering (Bộ A + Bộ B) | Tuần 2 |
-| **4** | Train Linear Regression + Random Forest | Tuần 3 |
-| **5** | Train LightGBM + Hyperparameter tuning | Tuần 3 |
-| **6** | Train LSTM + Hyperparameter tuning | Tuần 3–4 |
-| **7** | Evaluation, Ablation Study, So sánh | Tuần 4 |
-| **8** | Viết báo cáo & Trực quan hóa kết quả | Tuần 4–5 |
-
-### 6.2 Cấu trúc thư mục
-
-```
-NCKH/
-├── data/
-│   ├── raw/                  # Dữ liệu gốc
-│   └── processed/            # Dữ liệu đã xử lý
-├── notebooks/
-│   ├── 01_data_collection.ipynb
-│   ├── 02_eda.ipynb
-│   ├── 03_feature_engineering.ipynb
-│   ├── 04_model_training.ipynb
-│   └── 05_evaluation.ipynb
-├── src/
-│   ├── data/
-│   │   ├── crawlers.py       # VNStock & Binance crawlers
-│   │   └── preprocessing.py
-│   ├── features/
-│   │   └── engineering.py    # Feature engineering pipeline
-│   ├── models/
-│   │   ├── linear_reg.py
-│   │   ├── random_forest.py
-│   │   ├── lightgbm_model.py
-│   │   └── lstm_model.py
-│   └── evaluation/
-│       ├── metrics.py        # MAE, RMSE, MAPE, R², DA
-│       └── visualization.py
-├── models/                   # Saved trained models
-├── reports/
-│   ├── figures/
-│   └── results.csv
-├── docs/
-│   └── experiment_report.md
-├── requirements.txt
-└── README.md
-```
-
----
-
-## 7. Kết Quả Kỳ Vọng
-
-### 7.1 Bảng kết quả (sẽ điền sau thí nghiệm)
-
-#### VNStock
-
-| Model | Features | MAE | RMSE | MAPE (%) | R² | DA (%) | Train Time |
-|-------|----------|-----|------|----------|-----|--------|------------|
-| Linear Regression | Raw | — | — | — | — | — | — |
-| Linear Regression | Engineered | — | — | — | — | — | — |
-| Random Forest | Raw | — | — | — | — | — | — |
-| Random Forest | Engineered | — | — | — | — | — | — |
-| LightGBM | Raw | — | — | — | — | — | — |
-| LightGBM | Engineered | — | — | — | — | — | — |
-| LSTM | Raw | — | — | — | — | — | — |
-| LSTM | Engineered | — | — | — | — | — | — |
-
-#### Binance
-
-| Model | Features | MAE | RMSE | MAPE (%) | R² | DA (%) | Train Time |
-|-------|----------|-----|------|----------|-----|--------|------------|
-| Linear Regression | Raw | — | — | — | — | — | — |
-| Linear Regression | Engineered | — | — | — | — | — | — |
-| Random Forest | Raw | — | — | — | — | — | — |
-| Random Forest | Engineered | — | — | — | — | — | — |
-| LightGBM | Raw | — | — | — | — | — | — |
-| LightGBM | Engineered | — | — | — | — | — | — |
-| LSTM | Raw | — | — | — | — | — | — |
-| LSTM | Engineered | — | — | — | — | — | — |
-
-### 7.2 Biểu đồ kỳ vọng
-
-1. **Bar chart**: So sánh MAE / RMSE giữa 4 mô hình
-2. **Line chart**: Actual vs. Predicted cho từng model trên tập test
-3. **Heatmap**: Ablation matrix — Δ Performance (Raw → Engineered)
-4. **Grouped bar chart**: DA (%) so sánh 4 models × 2 datasets
-
-### 7.3 Giả thuyết ban đầu
-
-| Giả thuyết | Dự đoán | Lý do |
-|-------------|---------|-------|
-| H1 | **LightGBM** sẽ cho RMSE/MAE thấp nhất trên VNStock | Gradient boosting rất mạnh trên tabular data, VNStock ít noise hơn crypto |
-| H2 | **LSTM** sẽ competitive trên Binance | Crypto biến động mạnh, LSTM capture được sequential patterns |
-| H3 | Feature engineering cải thiện **~15–25%** cho LR và RF, nhưng **<10%** cho LSTM | LSTM tự học features từ raw sequence, tree-based models phụ thuộc features thủ công |
-| H4 | **Linear Regression** sẽ thua rõ rệt nhưng vẫn có DA > 50% | Thị trường có xu hướng (trend), LR bắt được trend cơ bản |
-
----
-
-## 8. Rủi Ro & Biện Pháp
-
-| Rủi ro | Biện pháp |
-|--------|-----------|
-| Data leakage do split sai | Time-based split, kiểm tra pipeline kỹ |
-| LSTM overfitting | Dropout, Early Stopping, monitor val_loss |
-| API rate limit | Cache dữ liệu local, retry logic |
-| Non-stationarity chuỗi giá | Dùng returns thay vì raw price, differencing |
-| LightGBM overfit với nhiều features | Regularization (`reg_alpha`, `reg_lambda`) |
-
----
-
-## 9. Công Nghệ & Thư Viện
-
-| Mục đích | Thư viện |
-|----------|----------|
-| Thu thập dữ liệu | `vnstock`, `python-binance` / `ccxt` |
-| Xử lý dữ liệu | `pandas`, `numpy` |
-| Feature Engineering | `ta` (technical analysis) |
-| Linear Regression, Random Forest | `scikit-learn` |
-| LightGBM | `lightgbm` |
-| LSTM | `tensorflow` / `keras` |
-| Visualization | `matplotlib`, `seaborn` |
-| Notebook | `jupyter` |
-
----
-
-## 10. Tài Liệu Tham Khảo
-
-1. Fischer, T., & Krauss, C. (2018). *Deep learning with long short-term memory networks for financial market predictions.* European Journal of Operational Research.
-2. Chen, T., & Guestrin, C. (2016). *XGBoost: A Scalable Tree Boosting System.* KDD.
-3. Ke, G., et al. (2017). *LightGBM: A Highly Efficient Gradient Boosting Decision Tree.* NeurIPS.
-4. Hochreiter, S., & Schmidhuber, J. (1997). *Long Short-Term Memory.* Neural Computation.
-
----
-
-> **Ghi chú:** Kết quả thực nghiệm sẽ được cập nhật vào mục 7 sau khi hoàn thành training. Model tốt nhất sẽ được chọn dựa trên tiêu chí ở mục 5.2.
+Tại thời điểm ghi báo cáo, bốn official run đều hợp lệ và benchmark sẵn sàng
+cho PR review. Issue #20 vẫn để mở cho đến khi hoàn tất CI và post-merge
+verification.

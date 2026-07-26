@@ -330,7 +330,7 @@ def clean_and_store_task(self, symbol_id: int, timeframe: str) -> dict[str, Any]
 
         try:
             # Exponential backoff countdown: 5s, 10s, 20s
-            countdown = 5 * (2 ** self.request.retries)
+            countdown = 5 * (2**self.request.retries)
             raise self.retry(exc=e, countdown=countdown)
         except MaxRetriesExceededError as retry_err:
             update_job(
@@ -348,9 +348,7 @@ def clean_and_store_task(self, symbol_id: int, timeframe: str) -> dict[str, Any]
         duration_ms = int(
             (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
         )
-        logger.error(
-            f"Logic or data validation error in clean_and_store_task: {e}"
-        )
+        logger.error(f"Logic or data validation error in clean_and_store_task: {e}")
 
         update_job(
             db,

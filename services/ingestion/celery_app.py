@@ -52,7 +52,7 @@ try:
     celery_app.conf.beat_schedule.update(cleaning_schedule)
 except Exception as exc:
     import logging
+
     logging.getLogger("celery").warning(
         "Không thể tải dynamic cleaning schedules cho Celery Beat: %s", exc
     )
-

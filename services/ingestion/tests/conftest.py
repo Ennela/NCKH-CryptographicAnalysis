@@ -48,7 +48,9 @@ def setup_test_db() -> None:
     # 2. Run init.sql
     sql_path = os.path.join(
         os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
-        "infra", "postgres", "init.sql",
+        "infra",
+        "postgres",
+        "init.sql",
     )
     with open(sql_path, "r", encoding="utf-8") as f:
         init_sql = f.read()

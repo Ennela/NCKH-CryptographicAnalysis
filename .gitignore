@@ -41,8 +41,15 @@ active_env/
 !.env.example
 mlruns/
 outputs/
+artifacts/predictions/
+artifacts/metrics/
+artifacts/benchmarks/
+results/*.csv
+mlflow.db
 data/raw/
 data/processed/
+data/snapshots/*
+!data/snapshots/.gitkeep
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
