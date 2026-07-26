@@ -22,7 +22,9 @@ jobs:
       - name: Install Linting Tools
         run: |
           python -m pip install --upgrade pip
-          pip install ruff
+          # Pin ruff: 0.16.0 (07/2026) changed default rules and breaks the repo.
+          # Upgrade deliberately together with a lint-fix PR.
+          pip install "ruff==0.15.16"
 
       - name: Run Ruff Linter
         run: ruff check .
