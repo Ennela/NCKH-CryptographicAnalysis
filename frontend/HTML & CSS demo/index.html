@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Index</title>
+    <link rel="stylesheet" href="index.css">
+</head>
+<body>
+    <div>
+        <header>
+            <a href="#">Tiền số</a>
+            <a href="#">Tổng quan</a>
+            <a href="#">Dự báo AI</a>
+            <a href="#">Dữ liệu lịch sử</a>
+        </header>
+        <div class="content">
+            <h1>Phân tích & Dự báo</h1>
+            <br>
+            <div class="filler">
+                <div class="item">
+                    <p>Tài sản mục tiêu</p>
+                    <select name="" id="assess">
+                        <option>BTC/USDT</option>
+                        <option>ETH/USDT</option>
+                        <option>SOL/USDT</option>
+                    </select>
+                </div>
+                <div class="item">
+                    <p>Mô hình huấn luyện</p>
+                    <select name="" id="assess">
+                        <option>LSTM-GRU Hybrid</option>
+                        <option>LSTM</option>
+                        <option>GRU</option>
+                    </select>
+                </div>
+                <div class="item">
+                    <p>Khung thời gian</p>
+                    <select name="" id="assess">
+                        <option>7 ngày tới</option>
+                        <option>14 ngày tới</option>
+                        <option>30 ngày tới</option>
+                    </select>
+                </div>
+                <div class="item">
+                    <button>
+                    Tiến hành dự báo
+                    </button>
+                </div>
+                
+            </div>
+            <div class="main-content">
+                <div class="chart">
+                    <div class="spbw">
+                        <h1>Biểu đồ dự đoán</h1>
+                         <div class="legend">
+                            <div class="legend-item">
+                                <span class="line real"></span>
+                                <span>Giá thực tế</span>
+                            </div>
+
+                            <div class="legend-item">
+                                <span class="line predict"></span>
+                                <span>Giá AI dự báo</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="filler-left">
+                    <h1>Đánh giá Mô hình</h1>
+                    <p>Trên tập dữ liệu kiểm thử( Test set)</p>
+                    <div class="box1">Root Mean Sq Error( MRSE): </div>
+                    <div class="box1">Mean Absolute Error(MAE):: </div>
+                    <div class="box1">R^2 Score( Độ khớp): </div>
+                </div>
+                <div class="filler-left1">
+                    <h1>Tóm tắt thuật toán</h1>
+                    <div class="box1">
+                       <h1>Phân tích chuyên sâu:</h1> 
+                        <p>Mô hình LSTM-GRU Hybird vượt qua đường trung bình động SMA50. Biểu hiện xu hướng:</p>
+                    </div>
+                    
+                </div>
+            </div>
+            
+        </div>
+    </div>
+    
+</body>
+</html>
+
+tiến hành dự báo -> chỉnh lại khuung
