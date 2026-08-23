@@ -1,0 +1,290 @@
+TASK 01 — AUDIT TOÀN BỘ PIPELINE ML TRƯỚC KHI TRAIN LẠI
+Deadline đề xuất: 23/08/2026
+Priority: P0 – Blocker
+Người thực hiện: 4 thành viên phụ trách 4 model
+
+Không làm trong task này:
+❌ Không thêm model mới.
+❌ Không thêm feature mới.
+❌ Không thay đổi dataset.
+❌ Không chạy Optuna hàng trăm trial.
+❌ Không cố làm RMSE đẹp hơn.
+❌ Không sửa benchmark chỉ vì model đang thua Naive.
+❌ Không viết kết luận rằng model tốt/xấu.
+
+Mục tiêu duy nhất
+Tìm hiểu và xác nhận xem pipeline hiện tại có đúng hay không.
+
+1. Vì sao chúng ta phải làm việc này?
+Kết quả hiện tại:
+Phương pháp | RMSE
+Naive Baseline | 0.3902
+ARIMA | 0.3882
+Random Forest | 0.6368
+XGBoost | 0.6484
+GRU | 0.7360
+
+Có nghĩa là hiện tại 3 model ML đang thua Naive khá xa.
+Nhưng chúng ta chưa biết lý do.
+Có thể:
+Model thua Naive
+      │
+      ├── Pipeline sai
+      │
+      ├── Data leakage / split sai
+      │
+      ├── Baseline tính sai
+      │
+      ├── Feature/target sai
+      │
+      ├── Model chưa được tuning đúng
+      │
+      └── Model thực sự không tốt hơn Naive
+
+Task này nhằm loại trừ từng khả năng trên.
+
+2. Mỗi thành viên phải làm gì?
+Mỗi người phụ trách model của mình, nhưng phải kiểm tra theo cùng một checklist.
+Ví dụ:
+Người 1 → XGBoost
+Người 2 → Random Forest
+Người 3 → GRU
+Người 4 → ARIMA
+
+Mỗi người phải tạo một file:
+docs/audit/<model>_audit.md
+Ví dụ:
+docs/audit/xgboost_audit.md
+docs/audit/random_forest_audit.md
+docs/audit/gru_audit.md
+docs/audit/arima_audit.md
+
+3. CHECK 1 — Xác định chính xác bài toán chúng ta đang giải
+Đầu tiên mỗi người phải trả lời bằng văn bản:
+Model của tôi đang dự đoán cái gì?
+Ví dụ:
+Input: Dữ liệu lịch sử đến ngày t
+Output: Giá đóng cửa của ngày t+1
+Hay viết theo công thức: X(t) → y(t+1)
+Trong project hiện tại target được gọi là: next_close
+
+Phải kiểm tra code
+Tìm trong code: target, next_close, horizon, y, label
+và xác nhận: y[t] = close[t+1]
+
+Ví dụ:
+Nếu:
+Ngày | Close
+01 | 100
+02 | 102
+03 | 101
+
+Thì:
+Input ngày 01 → Target phải là giá ngày 02 = 102
+Input ngày 02 → Target phải là giá ngày 03 = 101
+
+Kết quả cần ghi:
+## Target Audit
+Target hiện tại: next_close
+Horizon: 1 day
+X[t] dự đoán y[t+1]: YES/NO
+Evidence:
+- file:
+- function:
+- line:
+Nếu không chắc → ghi UNKNOWN, không tự đoán.
+
+4. CHECK 2 — Kiểm tra Train / Validation / Test
+Đây là việc bắt buộc.
+Nhóm cần hiểu:
+TRAIN (Model học) → VALIDATION (Chọn/tuning model) → TEST (Đánh giá cuối cùng)
+
+Với time series: Không được để dữ liệu tương lai lọt vào training.
+Mỗi người phải tìm trong code: train, val, validation, test, split, train_test_split, TimeSeriesSplit, walk_forward, rolling
+
+Sau đó trả lời:
+Câu 1: Dữ liệu có được chia theo thứ tự thời gian không?
+Câu 2: Test có nằm sau train không?
+Câu 3: Có random shuffle không?
+Câu 4: Validation có được dùng để tuning không?
+Câu 5: Test có được dùng để chọn model/hyperparameter không?
+Nếu có → đánh dấu lỗi.
+
+5. CHECK 3 — Kiểm tra Data Leakage
+Đây là phần rất quan trọng.
+Hiểu đơn giản: Model không được nhìn thấy thông tin của tương lai khi học.
+
+Ví dụ lỗi:
+Giả sử chúng ta dự đoán: Ngày 10
+Model chỉ được phép biết: Ngày 1 → 9
+Nhưng nếu feature được tính từ: Ngày 1 → 10
+thì model đã biết tương lai.
+
+Mỗi model cần kiểm tra:
+Feature engineering
+Tìm: rolling, shift, lag, MA, EMA, RSI, MACD, Bollinger, return, volatility
+và xem chúng được tính thế nào.
+Ví dụ: df["ma7"] = df["close"].rolling(7).mean()
+cần hiểu tại ngày t, MA7 có chỉ sử dụng dữ liệu đến t hay vô tình sử dụng dữ liệu sau t.
+
+6. CHECK 4 — Kiểm tra Scaling
+Đặc biệt quan trọng với GRU.
+Ví dụ code đúng:
+scaler.fit(train_data)
+train_scaled = scaler.transform(train_data)
+val_scaled = scaler.transform(val_data)
+test_scaled = scaler.transform(test_data)
+
+Code đáng nghi:
+scaler.fit(all_data)
+vì: all_data = train + validation + test
+Khi đó scaler đã "nhìn" test data.
+
+Mỗi người phải trả lời:
+Scaler được fit trên phần nào?
+[ ] Train only
+[ ] Train + validation
+[ ] Train + validation + test
+[ ] Không biết
+Nếu không phải Train only, đánh dấu: 🔴 P0 ISSUE
+
+7. CHECK 5 — Kiểm tra Naive Baseline
+Đây là việc cả 4 người cùng làm, không chỉ model owner.
+Nhóm phải xác nhận Naive đang làm: Prediction(t+1) = Close(t)
+
+Sau đó tính: Naive MAE, Naive RMSE, Naive MAPE
+
+8. CHECK 6 — Quan trọng nhất: Model và Naive phải thi cùng một bài
+Đây là điều gọi là fair comparison.
+Ví dụ:
+XGBoost: Test = 78 samples
+Naive: Test = 78 samples
+Phải đảm bảo: XGBoost actual[0] = Naive actual[0] và XGBoost actual[77] = Naive actual[77]
+
+Nếu model đánh giá trên: 01/01 → 19/03
+thì Naive cũng phải đánh giá trên: 01/01 → 19/03
+Không được khác test window.
+
+9. CHECK 7 — Kiểm tra RMSE được tính như thế nào
+Nhóm không cần tự viết metric mới.
+Chỉ cần xác nhận: actual, prediction → RMSE
+Ví dụ: rmse = sqrt(mean((actual - prediction)^2))
+Phải kiểm tra: actual có đúng không? prediction có đúng không? có NaN không? có bị lệch index không? có prediction nào bị bỏ không?
+
+10. CHECK 8 — Kiểm tra riêng XGBoost và Random Forest
+Hai bạn phụ trách XGB/RF cần thêm một kiểm tra: Extrapolation
+Lấy: Train target range, Test target range
+Nếu test nằm hoàn toàn ngoài vùng train thì ghi: ⚠️ Potential extrapolation issue.
+Không kết luận ngay là lỗi. Chỉ ghi nhận để nhóm phân tích.
+
+11. CHECK 9 — Kiểm tra riêng GRU
+Bạn phụ trách GRU kiểm tra: Lookback
+Ví dụ: lookback = 30
+thì: Ngày 1 → 30 → predict ngày 31
+Không được: Ngày 1 → 30 → predict ngày 30
+Kiểm tra: X.shape, y.shape, sequence length, target index và ghi lại.
+
+12. CHECK 10 — Kiểm tra riêng ARIMA
+Bạn ARIMA kiểm tra: ARIMA(p,d,q) hiện tại là: ARIMA(1,1,1)
+Cần xác nhận:
+Dữ liệu đầu vào là gì?
+Có differencing không?
+Training dùng tới thời điểm nào?
+Forecast test như thế nào?
+Có sử dụng actual future value để forecast bước tiếp theo không?
+Có walk-forward không?
+
+Đặc biệt phải phân biệt:
+Cách không nên dùng: Model được forecast cả test một lần nhưng vô tình dùng thông tin test.
+với Walk-forward:
+Train → predict t1
+Train + t1 → predict t2
+Train + t1 + t2 → predict t3
+Hai cách này cho ý nghĩa khác nhau.
+
+13. Sau khi mỗi người kiểm tra xong
+Mỗi người phải nộp 1 Audit Report.
+Ví dụ XGBoost:
+# XGBoost Audit
+## 1. Target
+Target: next_close
+Horizon: 1 day
+Status: ✅ PASS
+---
+## 2. Train/Validation/Test
+Status: ✅ PASS
+Evidence: ...
+---
+## 3. Data Leakage
+Status: ⚠️ NEED REVIEW
+Evidence: ...
+---
+## 4. Scaling
+Status: N/A
+---
+## 5. Baseline
+Naive test samples: 78
+XGBoost test samples: 78
+Status: ✅ PASS
+---
+## 6. Extrapolation
+Train price range: ...
+Test price range: ...
+Status: ⚠️ NEED REVIEW
+---
+## 7. Conclusion
+Current pipeline:
+[ ] Valid
+[ ] Has issues
+[ ] Need further investigation
+Issues: ...
+
+14. Phần quan trọng nhất: Không tự sửa lung tung
+Trong giai đoạn này, nếu phát hiện:
+❌ Target sai
+❌ Split sai
+❌ Leakage
+❌ Scaler sai
+❌ Baseline sai
+thì không tự ý sửa rồi chạy lại.
+Hãy ghi: P0 ISSUE FOUND và báo vào nhóm.
+
+Tại sao?
+Vì nếu mỗi người tự sửa theo cách riêng, cuối cùng chúng ta sẽ không biết:
+Kết quả mới khác kết quả cũ vì sửa đúng methodology hay vì thay đổi thứ khác?
+
+Bảng Kiểm tra
+Kiểm tra | XGBoost | RF | GRU | ARIMA
+Target đúng | ✅ | ✅ | ✅ | ✅
+Split đúng | ✅ | ✅ | ✅ | ✅
+Không leakage | ✅ | ✅ | ✅ | ✅
+Scaling đúng | N/A | N/A | ✅ | N/A
+Baseline cùng test| ✅ | ✅ | ✅ | ✅
+Metric đúng | ✅ | ✅ | ✅ | ✅
+Extrapolation | ⚠️ | ⚠️ | N/A | N/A
+Walk-forward | N/A | N/A | ✅ | ⚠️
+
+Tổng kết:
+Hiện tại benchmark cho thấy XGBoost, Random Forest và GRU đang thua Naive Baseline khá xa, còn ARIMA chỉ tốt hơn Naive một chút.
+Việc đầu tiên của nhóm là kiểm tra xem pipeline hiện tại có đúng không.
+XGBoost: kiểm tra target → feature → train/val/test → leakage → scaling → extrapolation → Optuna → evaluation.
+Random Forest: kiểm tra target → feature → train/val/test → leakage → extrapolation → evaluation.
+GRU: kiểm tra target → sequence/lookback → train/val/test → scaler → leakage → evaluation.
+ARIMA: kiểm tra target → time-series split → differencing → forecast → walk-forward → evaluation.
+Cả nhóm: cùng kiểm tra Naive Baseline và đảm bảo 4 model + Naive sử dụng cùng target, cùng test period, cùng số sample và cùng metric.
+
+Mỗi người tạo một file: docs/audit/<model>_audit.md
+Trong file phải ghi rõ:
+- Đang dự đoán target gì?
+- Train/validation/test chia như thế nào?
+- Có data leakage không?
+- Scaling có đúng không?
+- Test set của model có giống test set của Naive không?
+- Metric được tính như thế nào?
+- Có vấn đề gì phát hiện được?
+- Evidence nằm ở file/function nào?
+
+Lưu ý: Task này chưa nhằm cải thiện RMSE. Không tự ý đổi dataset, đổi test set, thêm feature, thêm model hoặc tuning để làm kết quả đẹp hơn. Nếu phát hiện lỗi thì ghi rõ lỗi và báo nhóm.
+Deadline: 21-22/8
+
+Sau khi 4 người hoàn thành audit, cả nhóm sẽ họp để tổng hợp thành một bảng PASS/FAIL. Chỉ khi methodology được xác nhận đúng thì chúng ta mới chuyển sang TASK 02: chạy official benchmark và chốt kết quả thực nghiệm.
