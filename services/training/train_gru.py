@@ -42,7 +42,16 @@ RMSE_TOLERANCE = 1e-12
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PREDICTION_ROOT = REPO_ROOT / "artifacts" / "predictions" / MODEL_NAME
 SUMMARY_ROOT = REPO_ROOT / "artifacts" / "metrics" / MODEL_NAME
-FEATURE_LIST: tuple[str, ...] = ("close", "moving_average_7")
+FEATURE_LIST: tuple[str, ...] = (
+    "close",
+    "moving_average_7",
+    "moving_average_14",
+    "return_1d",
+    "return_3d",
+    "return_7d",
+    "rolling_std_7",
+    "rolling_std_14",
+)
 REPRODUCIBILITY_LIMIT = (
     "Deterministic algorithms are requested, but exact CUDA reproducibility can "
     "still depend on PyTorch, CUDA, cuDNN, driver, and GPU versions."
@@ -115,17 +124,17 @@ MetricValues = dict[str, float]
 class GRUTrainingConfig:
     """Fixed architecture and training configuration for Issue #18."""
 
-    sequence_length: int = 30
+    sequence_length: int = 7
     moving_average_window: int = 7
-    input_size: int = 2
+    input_size: int = 8
     hidden_size: int = 64
-    num_layers: int = 2
-    dropout: float = 0.2
-    max_epochs: int = 60
-    batch_size: int = 32
+    num_layers: int = 1
+    dropout: float = 0.0
+    max_epochs: int = 100
+    batch_size: int = 16
     learning_rate: float = 0.0005
-    weight_decay: float = 0.0001
-    patience: int = 10
+    weight_decay: float = 0.001
+    patience: int = 20
     min_delta: float = 0.0
 
 
@@ -237,9 +246,13 @@ def _build_continuous_features(
         full_frame.sort_values("ts", kind="mergesort").reset_index(drop=True).copy()
     )
     featured["ts"] = pd.to_datetime(featured["ts"], utc=True, errors="raise")
-    featured["moving_average_7"] = (
-        featured["close"].rolling(window=config.moving_average_window).mean()
-    )
+    featured["moving_average_7"] = featured["close"].rolling(window=7).mean()
+    featured["moving_average_14"] = featured["close"].rolling(window=14).mean()
+    featured["return_1d"] = featured["close"].pct_change(1)
+    featured["return_3d"] = featured["close"].pct_change(3)
+    featured["return_7d"] = featured["close"].pct_change(7)
+    featured["rolling_std_7"] = featured["close"].rolling(window=7).std()
+    featured["rolling_std_14"] = featured["close"].rolling(window=14).std()
     featured["input_ts"] = featured["ts"]
     featured["target_ts"] = featured.groupby("split", sort=False)["ts"].shift(-1)
     featured["current_close"] = featured["close"]
@@ -254,11 +267,11 @@ def _build_continuous_features(
 def _fit_train_scalers(featured: pd.DataFrame) -> tuple[MinMaxScaler, MinMaxScaler]:
     """Fit feature and target scalers once, using training rows only."""
     train_rows = featured["split"].eq("train")
-    train_target_rows = train_rows & featured[TARGET_COLUMN].notna()
     feature_scaler = MinMaxScaler()
     target_scaler = MinMaxScaler()
     feature_scaler.fit(featured.loc[train_rows, FEATURE_LIST])
-    target_scaler.fit(featured.loc[train_target_rows, [TARGET_COLUMN]])
+    # Align target scaling exactly with 'close' feature scaling
+    target_scaler.fit(featured.loc[train_rows, ["close"]].to_numpy())
     return feature_scaler, target_scaler
 
 
@@ -272,7 +285,7 @@ def _scaled_arrays(
     scaled_targets = np.full(len(featured), np.nan, dtype=np.float64)
     finite_target = featured[TARGET_COLUMN].notna().to_numpy()
     scaled_targets[finite_target] = target_scaler.transform(
-        featured.loc[finite_target, [TARGET_COLUMN]]
+        featured.loc[finite_target, [TARGET_COLUMN]].to_numpy()
     ).reshape(-1)
     return scaled_features, scaled_targets
 
