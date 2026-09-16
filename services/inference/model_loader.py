@@ -175,11 +175,12 @@ class ModelLoader:
             logger.info("Rebuilding GRU from state dict (training package absent).")
             from gru_net import GRUForecaster
 
+            # Defaults mirror train_gru.GRUTrainingConfig (8 features, 1 layer).
             model = GRUForecaster(
-                input_size=int(params.get("input_size", 2)),
+                input_size=int(params.get("input_size", 8)),
                 hidden_size=int(params.get("hidden_size", 64)),
-                num_layers=int(params.get("num_layers", 2)),
-                dropout=float(params.get("dropout", 0.2)),
+                num_layers=int(params.get("num_layers", 1)),
+                dropout=float(params.get("dropout", 0.0)),
             )
             state_path = self._download(run_id, GRU_STATE_DICT_ARTIFACT)
             model.load_state_dict(torch.load(state_path, map_location="cpu"))
@@ -192,8 +193,7 @@ class ModelLoader:
             model,
             feature_scaler,
             target_scaler,
-            sequence_length=int(params.get("sequence_length", 30)),
-            moving_average_window=int(params.get("moving_average_window", 7)),
+            sequence_length=int(params.get("sequence_length", 7)),
         )
 
     def _build_arima(self, model_uri: str, run_id: str) -> ArimaPredictor:

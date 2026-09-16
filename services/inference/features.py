@@ -6,6 +6,7 @@ formulas it was trained on:
 
 - XGBoost: services/training/models/xgboost_features.py (19 features)
 - Random Forest: services/training/models/random_forest_features.py (18 features)
+- GRU: services/training/train_gru.py::_build_continuous_features (8 features)
 
 The training builders cannot be reused directly for live data because they
 require ``next_close``/``split`` columns and drop the newest bar (whose target
@@ -75,6 +76,23 @@ RANDOM_FOREST_FEATURE_LIST: list[str] = [
 # close_lag_20 is the binding constraint; EWM indicators (RSI/MACD) need a
 # longer warm-up before they converge to the training-time values.
 MIN_HISTORY_ROWS = 21
+
+# Same ordered registry as services/training/train_gru.FEATURE_LIST. The
+# residual head of GRUForecaster reads the last scaled ``close`` from
+# column 0, so the order is part of the model contract, not just a naming
+# convention.
+GRU_FEATURE_LIST: list[str] = [
+    "close",
+    "moving_average_7",
+    "moving_average_14",
+    "return_1d",
+    "return_3d",
+    "return_7d",
+    "rolling_std_7",
+    "rolling_std_14",
+]
+# Longest lookback among the GRU features (14-bar mean / std).
+GRU_FEATURE_WARMUP_ROWS = 14
 
 
 def _validate_ohlcv(df: pd.DataFrame) -> None:
@@ -154,6 +172,31 @@ def build_random_forest_live_features(df: pd.DataFrame) -> pd.DataFrame:
         featured[f"rolling_std_{window}"] = featured["close"].rolling(window).std()
 
     return featured
+
+
+def build_gru_live_features(close: pd.Series) -> pd.DataFrame:
+    """Compute the 8 GRU features from a chronological close series.
+
+    Same formulas and window sizes as ``train_gru._build_continuous_features``
+    (rolling windows are trailing, so every row only sees bars up to itself).
+    Rows inside the 14-bar warm-up are dropped, exactly as training drops
+    them with ``dropna(subset=FEATURE_LIST)``.
+    """
+    closes = pd.Series(close, dtype=float).reset_index(drop=True)
+    if len(closes) < GRU_FEATURE_WARMUP_ROWS:
+        raise ValueError(
+            f"Need at least {GRU_FEATURE_WARMUP_ROWS} close values to build "
+            f"GRU features, got {len(closes)}."
+        )
+    featured = pd.DataFrame({"close": closes})
+    featured["moving_average_7"] = closes.rolling(window=7).mean()
+    featured["moving_average_14"] = closes.rolling(window=14).mean()
+    featured["return_1d"] = closes.pct_change(1)
+    featured["return_3d"] = closes.pct_change(3)
+    featured["return_7d"] = closes.pct_change(7)
+    featured["rolling_std_7"] = closes.rolling(window=7).std()
+    featured["rolling_std_14"] = closes.rolling(window=14).std()
+    return featured.dropna(subset=GRU_FEATURE_LIST).reset_index(drop=True)
 
 
 def latest_feature_row(featured: pd.DataFrame, feature_list: list[str]) -> pd.DataFrame:

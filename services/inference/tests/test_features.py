@@ -7,9 +7,12 @@ import pandas as pd
 import pytest
 
 from features import (
+    GRU_FEATURE_LIST,
+    GRU_FEATURE_WARMUP_ROWS,
     MIN_HISTORY_ROWS,
     RANDOM_FOREST_FEATURE_LIST,
     XGBOOST_FEATURE_LIST,
+    build_gru_live_features,
     build_random_forest_live_features,
     build_xgboost_live_features,
     latest_feature_row,
@@ -125,3 +128,40 @@ def test_random_forest_parity_with_training_builder() -> None:
             atol=1e-10,
             err_msg=f"Feature mismatch vs training pipeline: {feature}",
         )
+
+
+def test_gru_live_features_drop_warmup_rows_only() -> None:
+    frame = _ohlcv_frame(40)
+    featured = build_gru_live_features(frame["close"])
+    assert list(featured.columns[:1]) == ["close"]
+    assert set(GRU_FEATURE_LIST).issubset(featured.columns)
+    assert len(featured) == 40 - (GRU_FEATURE_WARMUP_ROWS - 1)
+    assert featured[GRU_FEATURE_LIST].notna().all(axis=None)
+    # Newest bar is kept: its close is the last input close.
+    assert featured["close"].iloc[-1] == frame["close"].iloc[-1]
+
+
+def test_gru_live_features_reject_short_series() -> None:
+    with pytest.raises(ValueError, match="at least"):
+        build_gru_live_features(_ohlcv_frame(GRU_FEATURE_WARMUP_ROWS - 1)["close"])
+
+
+def test_gru_parity_with_training_builder() -> None:
+    train_gru = pytest.importorskip(
+        "services.training.train_gru", reason="training package not importable"
+    )
+    raw = _ohlcv_frame()
+    training_frame = _training_frame(raw)
+    expected = train_gru._build_continuous_features(
+        training_frame, train_gru.GRUTrainingConfig()
+    )
+    actual = build_gru_live_features(raw["close"])
+
+    assert list(train_gru.FEATURE_LIST) == GRU_FEATURE_LIST
+    # Training additionally drops nothing else for the feature columns, so the
+    # two frames cover the same rows once the warm-up is removed.
+    assert len(actual) == len(expected)
+    np.testing.assert_allclose(
+        actual[GRU_FEATURE_LIST].to_numpy(dtype=float),
+        expected[list(train_gru.FEATURE_LIST)].to_numpy(dtype=float),
+    )
