@@ -141,6 +141,7 @@ services:
     working_dir: /app/services/inference
     volumes:
       - .:/app
+      - mlflow_data:/mlflow
     environment:
       - ENV=development
       - PYTHONPATH=/app

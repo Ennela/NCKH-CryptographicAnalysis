@@ -103,6 +103,8 @@ services:
       dockerfile: services/training/Dockerfile
     container_name: forecast_training_prod
     restart: on-failure
+    volumes:
+      - mlflow_prod_data:/mlflow
     environment:
       - ENV=production
       - DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
@@ -120,6 +122,8 @@ services:
       dockerfile: services/inference/Dockerfile
     container_name: forecast_inference_prod
     restart: always
+    volumes:
+      - mlflow_prod_data:/mlflow
     environment:
       - ENV=production
       - DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}

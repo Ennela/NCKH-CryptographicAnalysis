@@ -46,6 +46,7 @@ artifacts/metrics/
 artifacts/benchmarks/
 results/*.csv
 mlflow.db
+celerybeat-schedule
 data/raw/
 data/processed/
 data/snapshots/*
