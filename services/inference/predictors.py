@@ -27,8 +27,11 @@ import numpy as np
 import pandas as pd
 
 from features import (
+    GRU_FEATURE_LIST,
+    GRU_FEATURE_WARMUP_ROWS,
     RANDOM_FOREST_FEATURE_LIST,
     XGBOOST_FEATURE_LIST,
+    build_gru_live_features,
     build_random_forest_live_features,
     build_xgboost_live_features,
     latest_feature_row,
@@ -36,8 +39,9 @@ from features import (
 
 logger = logging.getLogger(__name__)
 
-GRU_SEQUENCE_LENGTH = 30
-GRU_MOVING_AVERAGE_WINDOW = 7
+# Defaults mirror services/training/train_gru.GRUTrainingConfig; the loader
+# overrides them with the values logged on the MLflow run.
+GRU_SEQUENCE_LENGTH = 7
 
 
 class Predictor(Protocol):
@@ -101,12 +105,15 @@ class RandomForestPredictor:
 
 
 class GRUPredictor:
-    """Serve the GRUForecaster + MinMax scalers logged by train_gru.
+    """Serve the GRUForecaster + two MinMaxScalers logged by train_gru.
 
-    Input contract (train_gru.py): sequences of the last 30 scaled
-    (close, moving_average_7) rows inclusive of the current bar; output is a
-    MinMax-scaled next close that must be inverse-transformed with the
-    target scaler.
+    Input contract (train_gru.py): a window of the last ``sequence_length``
+    rows of the 8 scaled features in ``GRU_FEATURE_LIST``, inclusive of the
+    current bar. The network has a residual head — it returns
+    ``last scaled close + correction`` — so the output is already a scaled
+    next close and only needs the target scaler's inverse transform. Both
+    scalers share one mapping (the target scaler is fit on the training
+    ``close`` column), which the residual sum relies on.
     """
 
     def __init__(
@@ -115,34 +122,39 @@ class GRUPredictor:
         feature_scaler: Any,
         target_scaler: Any,
         sequence_length: int = GRU_SEQUENCE_LENGTH,
-        moving_average_window: int = GRU_MOVING_AVERAGE_WINDOW,
     ) -> None:
+        if sequence_length <= 0:
+            raise ValueError("GRU sequence_length must be positive.")
         self.model = model
         self.feature_scaler = feature_scaler
         self.target_scaler = target_scaler
         self.sequence_length = sequence_length
-        self.moving_average_window = moving_average_window
+
+    @property
+    def min_history_rows(self) -> int:
+        """Bars needed so the oldest window row has every 14-bar feature."""
+        return self.sequence_length + GRU_FEATURE_WARMUP_ROWS - 1
 
     def predict_steps(self, history: pd.DataFrame, steps: int) -> list[float]:
         import torch
 
-        min_rows = self.sequence_length + self.moving_average_window - 1
         closes = history["close"].astype(float).reset_index(drop=True)
-        if len(closes) < min_rows:
+        if len(closes) < self.min_history_rows:
             raise ValueError(
-                f"GRU needs at least {min_rows} bars of history, got {len(closes)}."
+                f"GRU needs at least {self.min_history_rows} bars of history, "
+                f"got {len(closes)}."
             )
 
         self.model.eval()
         predictions: list[float] = []
         for _ in range(steps):
-            moving_average = closes.rolling(self.moving_average_window).mean()
-            features = pd.DataFrame(
-                {"close": closes, "moving_average": moving_average}
-            ).tail(self.sequence_length)
-            scaled = self.feature_scaler.transform(
-                features.to_numpy(dtype=np.float64)
-            ).astype(np.float32)
+            featured = build_gru_live_features(closes)
+            window = featured.loc[:, GRU_FEATURE_LIST].tail(self.sequence_length)
+            if len(window) != self.sequence_length:
+                raise ValueError("GRU feature window is shorter than sequence_length.")
+            # Pass the named frame: the scaler was fit on a frame with these
+            # column names, so sklearn validates the order instead of warning.
+            scaled = np.asarray(self.feature_scaler.transform(window), dtype=np.float32)
             inputs = torch.from_numpy(scaled).unsqueeze(0)
             with torch.no_grad():
                 scaled_prediction = self.model(inputs).reshape(-1)[0].item()
