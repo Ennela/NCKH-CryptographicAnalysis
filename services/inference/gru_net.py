@@ -1,8 +1,22 @@
-"""PyTorch GRU model for one-step next-close forecasting."""
+"""GRU architecture mirror used to rebuild the trained model from its state dict.
+
+``mlflow.pytorch.load_model`` unpickles the module class by its original
+import path (``services.training.models.gru_model``), which is only available
+when the whole repo is on PYTHONPATH (dev bind mount). The inference image
+ships without the training package, so the loader falls back to
+reconstructing the network from the ``model_state/gru_state_dict.pt`` artifact
+plus the architecture params logged on the MLflow run.
+
+This class must stay attribute-compatible with
+services/training/models/gru_model.py::GRUForecaster (``gru`` +
+``output_layer``) so that ``load_state_dict`` maps 1:1, and its ``forward``
+must apply the same residual head: the output layer predicts a correction
+that is added to the last scaled ``close`` (feature column 0). Without the
+residual term the rebuilt network would silently return the correction
+alone. Parity is enforced by services/inference/tests/test_predictors.py.
+"""
 
 from __future__ import annotations
-
-from typing import Any
 
 import torch
 from torch import nn
@@ -50,12 +64,3 @@ class GRUForecaster(nn.Module):
         # Residual connection: close price is at index 0
         last_close = inputs[:, -1, 0]
         return last_close + residual
-
-    def get_config(self) -> dict[str, Any]:
-        """Return the architecture metadata required to reconstruct the model."""
-        return {
-            "input_size": self.input_size,
-            "hidden_size": self.hidden_size,
-            "num_layers": self.num_layers,
-            "dropout": self.dropout,
-        }

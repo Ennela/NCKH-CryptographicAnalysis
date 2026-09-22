@@ -310,6 +310,30 @@ loại im lặng dòng lỗi để làm run hợp lệ.
 Chỉ bắt đầu `BTCUSDT 1h` sau khi pilot `ACB 1d` hợp lệ. Quy trình manifest,
 hash, prediction, metric và quality gate phải được lặp lại không thay đổi.
 
+> **Ghi chú trạng thái (cập nhật 26/07/2026, không thay đổi protocol):**
+>
+> - Giai đoạn A (ACB 1d) đã hoàn tất: evaluator chạy 23/07/2026, cả bốn run
+>   `valid`, merge vào `develop` qua PR #32, Issue #20 đã đóng 24/07/2026.
+>   Bằng chứng: `docs/evidence/ACB_1d/`.
+> - Giai đoạn B (BTCUSDT 1h) CHƯA chạy. Khi thực hiện, theo đúng protocol
+>   hiện có, các lệnh cần chạy từ thư mục gốc repository là:
+>
+>   ```bash
+>   python -m services.training.train_xgboost --ticker BTCUSDT --timeframe 1h
+>   python -m services.training.train_random_forest --ticker BTCUSDT --timeframe 1h
+>   python -m services.training.train_gru --ticker BTCUSDT --timeframe 1h
+>   python -m services.training.train_arima --ticker BTCUSDT --timeframe 1h
+>   python -m services.training.benchmark \
+>     --xgboost-run-id <run_id> \
+>     --random-forest-run-id <run_id> \
+>     --gru-run-id <run_id> \
+>     --arima-run-id <run_id> \
+>     --output-dir artifacts/benchmarks/BTCUSDT_1h
+>   ```
+>
+>   Bốn `<run_id>` là MLflow run ID của bốn run official trên cùng manifest;
+>   toàn bộ quality gate ở mục 8 áp dụng nguyên vẹn.
+
 ## 10. Bằng chứng bắt buộc cho mỗi run
 
 Mỗi chủ model phải cung cấp:

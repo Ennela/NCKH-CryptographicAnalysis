@@ -137,29 +137,38 @@ Sửa code ngoài phần mình sở hữu → phải mở PR và tag đúng ngư
 ## 12. Ngoại lệ tạm thời (có thời hạn)
 
 ### 12.1 Sync engine trong shared/db/session.py
-- **Trạng thái:** Tạm chấp nhận — cần gỡ bỏ khi hoàn tất refactor ingestion.
-- **Lý do:** `api/binance_fastapi/app/binance_client.py` và
-  `api/vnstock_fastapi/app/vnstock_client.py` chạy DB operations trong background
-  threads (sync). Chuyển sang async đòi hỏi refactor toàn bộ ingestion pipeline
-  (thay `threading.Thread` bằng `asyncio.create_task`, thay `SessionLocal()` bằng
-  `async with AsyncSessionLocal()`, …) — vượt scope task hiện tại.
+- **Trạng thái:** Tạm chấp nhận — cần gỡ bỏ khi mọi consumer sync chuyển sang async.
+- **Lý do (cập nhật 2026-07-26):** Các client legacy `api/*` (lý do ban đầu của
+  ngoại lệ này) đã bị xóa theo §12.2. Sync engine vẫn phải giữ vì các nơi sau còn
+  import `get_db` / `SessionLocal` / `SyncSessionLocal` / `sync_engine` từ
+  `shared/db/session.py`:
+  - `services/inference/main.py` — các endpoint FastAPI dùng `Depends(get_db)` (sync).
+  - `services/ingestion/tasks.py` — Celery tasks mở session qua `SessionLocal()`.
+  - `services/training/data_loader.py` — đọc dữ liệu train qua `SessionLocal()`.
+  - `scripts/seed_db.py`, `scripts/backfill_vnstock.py`,
+    `scripts/import_dataset_snapshot.py`, `scripts/check_group_dataset.py`.
+  - Fixtures test: `tests/conftest.py`, `tests/test_db_connection.py`,
+    `services/ingestion/tests/conftest.py`.
+  - (`migrations/env.py` không import từ `shared/db/session.py` — Alembic tự tạo
+    sync engine qua `engine_from_config` — nhưng vẫn cần driver sync `psycopg2`.)
 - **Phạm vi ngoại lệ:** `shared/db/session.py` cung cấp **cả** `create_async_engine`
   (CHÍNH) **và** `create_engine` (COMPAT). Code mới **BẮT BUỘC** dùng async.
-  Chỉ code legacy ingestion client được dùng sync.
+  Chỉ các consumer liệt kê ở trên được dùng sync.
 - **Điều kiện gỡ bỏ:**
-  1. Refactor `binance_client.py` và `vnstock_client.py` sang async (dùng
-     `asyncio` thay `threading`, gọi `AsyncSessionLocal`).
-  2. Đổi 2 API service sang ghi dữ liệu vào `market.ohlcv_raw` / `market.ohlcv`
-     (thống nhất schema) thay vì bảng "lạ" riêng.
-  3. Xoá `sync_engine`, `SyncSessionLocal`, `get_db()`, alias `engine`/`SessionLocal`
+  1. Chuyển `services/inference/main.py` sang `Depends(get_async_session)`.
+  2. Chuyển `services/ingestion/tasks.py`, `services/training/data_loader.py`
+     và các script trong `scripts/` sang `AsyncSessionLocal` (hoặc engine sync
+     cục bộ riêng cho script chạy một lần, không đi qua `shared/db/session.py`).
+  3. Cập nhật các fixture test sync tương ứng.
+  4. Xoá `sync_engine`, `SyncSessionLocal`, `get_db()`, alias `engine`/`SessionLocal`
      khỏi `shared/db/session.py`.
-  4. Xoá `psycopg2-binary` khỏi `shared/pyproject.toml` (Alembic có thể chuyển sang
+  5. Xoá `psycopg2-binary` khỏi `shared/pyproject.toml` (Alembic có thể chuyển sang
      `psycopg[binary]` v3 async nếu cần).
 - **Người chịu trách nhiệm:** TV1 (Data/Lead).
 - **Deadline dự kiến:** Sprint sau khi hoàn tất task "trỏ ingestion vào market.ohlcv".
 
 ### 12.2 Gộp api/* (collector cũ) vào services/ingestion
-- **Trạng thái:** Kế hoạch thực hiện (sau khi hoàn tất refactor DB).
-- **Lý do:** Code thu thập dữ liệu (collector) hiện nằm rải rác tại các thư mục `api/binance_fastapi` và `api/vnstock_fastapi`. Cần gom toàn bộ logic này vào `services/ingestion` làm dịch vụ cào dữ liệu tập trung duy nhất để đơn giản hóa vận hành và cấu trúc repo.
-- **Người chịu trách nhiệm:** TV1 (Data/Lead) + TV3 (Feature/Inference).
-- **Deadline dự kiến:** Sprint sau khi ổn định TimescaleDB và hoàn thành tích hợp async session.
+- **Trạng thái:** Đã hoàn tất (2026-07-26) — `api/*` đã xóa, `services/ingestion`
+  là collector duy nhất.
+- **Lý do (lịch sử):** Code thu thập dữ liệu (collector) từng nằm rải rác tại các thư mục `api/binance_fastapi` và `api/vnstock_fastapi`. Toàn bộ logic thu thập đã được gom vào `services/ingestion` làm dịch vụ cào dữ liệu tập trung duy nhất để đơn giản hóa vận hành và cấu trúc repo.
+- **Người chịu trách nhiệm:** TV1 (Data/Lead) + TV3 (Feature/Inference).
