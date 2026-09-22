@@ -23,7 +23,9 @@ Sao chép file cấu hình mẫu:
 ```bash
 cp .env.local.example .env.local
 ```
-Chỉnh sửa biến môi trường trong file `.env.local` nếu cần thiết (ví dụ: đổi URL của dịch vụ Inference).
+Sau đó chỉnh sửa `.env.local`:
+- `NEXT_PUBLIC_API_URL`: base URL của Inference Service (mặc định `http://localhost:8000`, KHÔNG kèm hậu tố `/api/v1`).
+- `NEXT_PUBLIC_API_KEY`: API key gửi qua header `X-API-Key`, phải khớp với key cấu hình ở inference service.
 
 ### 2. Cài đặt thư viện
 Chạy lệnh sau tại thư mục `frontend/` để cài đặt dependencies:

@@ -10,8 +10,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
 parts/
 sdist/
 var/
@@ -46,10 +46,13 @@ artifacts/metrics/
 artifacts/benchmarks/
 results/*.csv
 mlflow.db
+celerybeat-schedule
 data/raw/
 data/processed/
 data/snapshots/*
 !data/snapshots/.gitkeep
+# local snapshot archives (e.g. data.zip) - snapshots live in data/snapshots/
+*.zip
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
