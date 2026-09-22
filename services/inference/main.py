@@ -539,3 +539,35 @@ def get_ohlcv_history(
         }
         for row in rows
     ]
+@app.get(
+    "/api/v1/jobs",
+    tags=["Admin"],
+    dependencies=[Depends(verify_api_key)],
+)
+def get_recent_jobs(
+    limit: int = Query(10, ge=1, le=50, description="Số lượng job tối đa trả về"),
+    db: Session = Depends(get_db),
+):
+    """
+    Lấy danh sách các job thu thập dữ liệu gần nhất từ bảng ops.job_log.
+    """
+    query = text(
+        "SELECT job_type, status, symbol_id, duration_ms, error, time "
+        "FROM ops.job_log "
+        "ORDER BY time DESC "
+        "LIMIT :limit"
+    )
+    rows = db.execute(query, {"limit": limit}).fetchall()
+    
+    # Trả về mảng JSON, parse datetime thành chuỗi ISO để frontend dễ hiển thị
+    return [
+        {
+            "job_type": row.job_type,
+            "status": row.status,
+            "symbol_id": row.symbol_id,
+            "duration_ms": row.duration_ms,
+            "error": row.error,
+            "time": row.time.isoformat() if row.time else None,
+        }
+        for row in rows
+    ]
