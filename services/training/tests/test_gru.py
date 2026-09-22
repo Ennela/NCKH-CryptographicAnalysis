@@ -203,18 +203,27 @@ def test_scalers_fit_train_only(
 ) -> None:
     featured = train_gru._build_continuous_features(full_frame, config)
     train_rows = featured["split"].eq("train")
-    train_target_rows = train_rows & featured["next_close"].notna()
     train_features = featured.loc[train_rows, train_gru.FEATURE_LIST].to_numpy()
-    train_targets = featured.loc[train_target_rows, "next_close"].to_numpy()
+    train_closes = featured.loc[train_rows, "close"].to_numpy()
+    close_index = train_gru.FEATURE_LIST.index("close")
     np.testing.assert_allclose(
         sequences.feature_scaler.data_min_, train_features.min(0)
     )
     np.testing.assert_allclose(
         sequences.feature_scaler.data_max_, train_features.max(0)
     )
-    assert sequences.target_scaler.data_min_[0] == pytest.approx(train_targets.min())
-    assert sequences.target_scaler.data_max_[0] == pytest.approx(train_targets.max())
-    assert sequences.target_scaler.data_max_[0] < full_frame["next_close"].max()
+    # The residual head returns `last_close + residual` in scaled space, so the
+    # target scaler must share the close feature's scale rather than being fit
+    # on next_close. Both are still fit on training rows only.
+    assert sequences.target_scaler.data_min_[0] == pytest.approx(train_closes.min())
+    assert sequences.target_scaler.data_max_[0] == pytest.approx(train_closes.max())
+    assert sequences.target_scaler.data_min_[0] == pytest.approx(
+        sequences.feature_scaler.data_min_[close_index]
+    )
+    assert sequences.target_scaler.data_max_[0] == pytest.approx(
+        sequences.feature_scaler.data_max_[close_index]
+    )
+    assert sequences.target_scaler.data_max_[0] < full_frame["close"].max()
 
 
 def test_sequence_has_no_lookahead(

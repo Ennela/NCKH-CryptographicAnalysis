@@ -42,7 +42,7 @@ format:
 	python -m ruff format .
 
 test:
-	python -m pytest services/shared/tests/ services/ingestion/tests/ services/training/tests/ services/inference/tests/ --disable-warnings
+	python -m pytest --disable-warnings
 
 migrate-generate:
 	docker-compose exec inference alembic revision --autogenerate -m "Auto migration"
