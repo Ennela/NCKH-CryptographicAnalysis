@@ -255,7 +255,9 @@ function QualityPanel() {
                       </span>
                     </span>
                   ) : (
-                    <span className="text-slate-500">Chưa chạy (dữ liệu nạp từ snapshot)</span>
+                    <span className="text-slate-500" title="Dữ liệu nạp bằng import snapshot / backfill, chưa qua clean_and_store_task">
+                      Chưa chạy pipeline làm sạch
+                    </span>
                   )}
                 </td>
               </tr>
