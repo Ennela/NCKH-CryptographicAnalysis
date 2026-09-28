@@ -4,7 +4,9 @@ Celery Beat Scheduler Configuration Builder — Tạo beat schedule động.
 Xác định lịch chạy làm sạch dữ liệu (clean_and_store_task) cho tất cả symbols active:
 - Crypto (BINANCE): định kỳ hàng giờ, được stagger (phân bổ) theo các phút khác nhau
   để tránh DB lock / nghẽn.
-- VN Stocks (HOSE): định kỳ hàng ngày lúc 16:00 giờ VN (09:00 UTC), cũng được stagger phút.
+- VN Stocks (HOSE): định kỳ hàng ngày lúc 18:00 giờ VN (11:00 UTC), cũng được stagger phút.
+  Phải chạy SAU task thu thập cổ phiếu (celery_app.py: 10:00 UTC), nếu không
+  dữ liệu thô của ngày hôm đó chỉ được làm sạch vào ngày giao dịch kế tiếp.
 
 Cấu hình lịch chạy (daily hour, minute, stagger interval) thông qua .env/BaseSettings.
 """
@@ -29,8 +31,9 @@ logger = logging.getLogger(__name__)
 class SchedulerSettings(BaseSettings):
     """Cấu hình Celery Beat Scheduler đọc từ biến môi trường hoặc .env."""
 
-    # Daily clean task VN Stock hour (16:00 VN Time = 09:00 UTC)
-    CLEAN_STOCK_HOUR_UTC: int = 9
+    # Daily clean task VN Stock hour (18:00 VN = 11:00 UTC), one hour after the
+    # 10:00 UTC stock ingestion in celery_app.py
+    CLEAN_STOCK_HOUR_UTC: int = 11
 
     # Stagger interval in minutes
     CLEAN_STAGGER_INTERVAL_MINS: int = 2

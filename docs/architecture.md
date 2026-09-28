@@ -147,12 +147,12 @@ Quy trình thu thập dữ liệu (`ingest`) và làm sạch dữ liệu (`clean
 2.  **Lịch chạy Cleaning (Làm sạch)**: Được cấu hình **động** dựa trên trạng thái hoạt động của symbols trong database thông qua [scheduler.py](file:///d:/sources/repos/NCKH/services/ingestion/app/scheduler.py):
     *   Hệ thống tự động quét danh sách symbols có `status = 'active'` từ bảng `market.symbol`.
     *   **Crypto symbols**: Chạy làm sạch hàng giờ. Phút chạy nến được **stagger** (phân bổ cách nhau `CLEAN_STAGGER_INTERVAL_MINS` phút) để tránh nghẽn database do các worker cùng ghi dữ liệu một lúc.
-    *   **Stock symbols**: Chạy làm sạch hàng ngày (từ Thứ 2 đến Thứ 6). Giờ chạy bắt đầu từ `CLEAN_STOCK_HOUR_UTC` (mặc định là `09:00 UTC` / `16:00 VN`, sau giờ đóng cửa sàn HOSE). Phút chạy cũng được stagger tuần tự.
+    *   **Stock symbols**: Chạy làm sạch hàng ngày (từ Thứ 2 đến Thứ 6). Giờ chạy bắt đầu từ `CLEAN_STOCK_HOUR_UTC` (mặc định là `11:00 UTC` / `18:00 VN`, tức 1 giờ sau task thu thập cổ phiếu lúc `10:00 UTC`; trước 28/09/2026 là `09:00 UTC`, chạy trước khi dữ liệu mới về nên bị trễ một ngày). Phút chạy cũng được stagger tuần tự.
 
 ### Cách thay đổi lịch chạy / tham số Scheduler
 Nhà phát triển có thể điều chỉnh lịch chạy thông qua các biến môi trường trong file `.env` mà không cần sửa code:
-*   `CLEAN_STOCK_HOUR_UTC`: Thay đổi giờ chạy làm sạch cổ phiếu daily (múi giờ UTC, ví dụ đặt `9` ứng với `16:00 VN`).
-*   `CLEAN_STAGGER_INTERVAL_MINS`: Khoảng giãn cách phút giữa các symbol khi chạy task (mặc định là `2` phút). Ví dụ, nếu có 3 cổ phiếu active FPT, VCB, MSN thì FPT chạy lúc 16:00, VCB chạy lúc 16:02, MSN chạy lúc 16:04.
+*   `CLEAN_STOCK_HOUR_UTC`: Thay đổi giờ chạy làm sạch cổ phiếu daily (múi giờ UTC, ví dụ đặt `11` ứng với `18:00 VN`; không nên đặt sớm hơn giờ thu thập `10:00 UTC`).
+*   `CLEAN_STAGGER_INTERVAL_MINS`: Khoảng giãn cách phút giữa các symbol khi chạy task (mặc định là `2` phút). Ví dụ, nếu có 3 cổ phiếu active FPT, VCB, MSN thì FPT chạy lúc 18:00, VCB chạy lúc 18:02, MSN chạy lúc 18:04 (giờ VN).
 
 ---
 
