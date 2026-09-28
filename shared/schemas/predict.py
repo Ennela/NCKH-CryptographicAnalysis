@@ -56,6 +56,11 @@ class ModelMetrics(BaseModel):
     mae: float
     rmse: float
     mape: float
+    # Naive baseline (y_hat = close hiện tại) trên cùng tập test — AGENTS.md §6
+    naive_mae: Optional[float] = None
+    naive_rmse: Optional[float] = None
+    naive_mape: Optional[float] = None
+    directional_accuracy: Optional[float] = None
 
 
 class ModelInfoResponse(BaseModel):

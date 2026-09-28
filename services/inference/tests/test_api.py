@@ -144,14 +144,51 @@ def test_predict_returns_real_predictor_output(
     values = [item["predicted_value"] for item in body["predictions"]]
     assert values == [111.0, 112.0, 113.0]
 
-    # Stock without explicit timeframe -> 1d spacing after the last bar.
+    # Stock without explicit timeframe -> next trading days (Mon–Fri) after
+    # the last bar: Wed 2025-04-30 -> Thu, Fri, then Mon (weekend skipped).
     last_bar = _ohlcv_rows()[-1][0]
+    assert last_bar.weekday() == 2
     target_times = [
         datetime.fromisoformat(item["target_time"]) for item in body["predictions"]
     ]
-    assert target_times[0] == last_bar + timedelta(days=1)
-    assert target_times[2] - target_times[1] == timedelta(days=1)
+    assert target_times == [
+        last_bar + timedelta(days=1),
+        last_bar + timedelta(days=2),
+        last_bar + timedelta(days=5),
+    ]
     assert predictor.calls == [(120, 3)]
+
+
+def test_predict_crypto_steps_follow_calendar_days(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    session = _FakeSession(symbol_row=(9, "crypto"), ohlcv_rows=_ohlcv_rows())
+    _override_db(session)
+    monkeypatch.setattr(
+        main.model_loader,
+        "load",
+        lambda *args: _loaded_model(_StubPredictor([1.0, 2.0, 3.0, 4.0])),
+    )
+
+    response = client.post(
+        "/api/v1/predict",
+        headers=API_HEADERS,
+        json={
+            "ticker_id": "BTCUSDT",
+            "model_name": "gru",
+            "steps": 4,
+            "timeframe": "1d",
+        },
+    )
+
+    assert response.status_code == 200
+    last_bar = _ohlcv_rows()[-1][0]
+    target_times = [
+        datetime.fromisoformat(item["target_time"])
+        for item in response.json()["predictions"]
+    ]
+    # Crypto trades 24/7: Thu, Fri, Sat, Sun.
+    assert target_times == [last_bar + timedelta(days=d) for d in range(1, 5)]
 
 
 def test_predict_respects_explicit_timeframe(
@@ -332,7 +369,17 @@ def test_models_lists_registry_content(
     ]
     _FakeMlflowClient.runs = {
         "run-1": SimpleNamespace(
-            data=SimpleNamespace(metrics={"mae": 0.4, "rmse": 0.6, "mape_pct": 1.2})
+            data=SimpleNamespace(
+                metrics={
+                    "mae": 0.4,
+                    "rmse": 0.6,
+                    "mape_pct": 1.2,
+                    "naive_mae": 0.41,
+                    "naive_rmse": 0.62,
+                    "naive_mape_pct": 1.25,
+                    "directional_accuracy": 0.55,
+                }
+            )
         )
     }
     monkeypatch.setattr(main, "MlflowClient", _FakeMlflowClient)
@@ -344,7 +391,15 @@ def test_models_lists_registry_content(
     assert body[0]["model_name"] == "ACB_1d_xgboost"
     assert body[0]["version"] == "3"
     assert body[0]["status"] == "active"
-    assert body[0]["metrics"] == {"mae": 0.4, "rmse": 0.6, "mape": 1.2}
+    assert body[0]["metrics"] == {
+        "mae": 0.4,
+        "rmse": 0.6,
+        "mape": 1.2,
+        "naive_mae": 0.41,
+        "naive_rmse": 0.62,
+        "naive_mape": 1.25,
+        "directional_accuracy": 0.55,
+    }
 
 
 def test_models_maps_mlflow_outage_to_503(

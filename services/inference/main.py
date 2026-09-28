@@ -1,5 +1,6 @@
 import json
 import logging
+from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List, Optional
@@ -12,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from mlflow.exceptions import MlflowException
 from mlflow.tracking import MlflowClient
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 # Import Shared Module Components
@@ -32,8 +34,17 @@ from shared.schemas.predict import (
     PredictResponse,
     PredictionItem,
 )
+from shared.schemas.analytics import (
+    DataQualityReport,
+    IndicatorPoint,
+    IndicatorResponse,
+    JobLogEntry,
+    PipelineCheck,
+    SymbolStats,
+)
 
 # Local imports
+from analytics import INDICATOR_WARMUP_BARS, compute_indicators, profile_quality
 from model_loader import (
     LoadedModel,
     ModelLoadError,
@@ -166,6 +177,24 @@ def _load_history(
     return frame
 
 
+def _target_times(
+    last_bar_ts: datetime, timeframe: str, asset_class: str, steps: int
+) -> List[datetime]:
+    """Timestamps of the next `steps` bars after the last observed bar.
+
+    Each model step is "the next bar", so daily stock bars land on the next
+    trading days (Mon–Fri) rather than calendar days; crypto trades 24/7.
+    Vietnamese public holidays are not modelled.
+    """
+    if asset_class == "stock" and timeframe == "1d":
+        start = pd.Timestamp(last_bar_ts)
+        return [
+            (start + pd.offsets.BDay(step)).to_pydatetime()
+            for step in range(1, steps + 1)
+        ]
+    return [last_bar_ts + STEP_DELTAS[timeframe] * step for step in range(1, steps + 1)]
+
+
 def _persist_predictions(
     db: Session,
     loaded: LoadedModel,
@@ -292,15 +321,12 @@ def predict_price(payload: PredictRequest, db: Session = Depends(get_db)):
             detail=f"Not enough usable history for {ticker} ({timeframe}): {exc}",
         ) from exc
 
-    step_delta = STEP_DELTAS[timeframe]
     last_bar_ts = history["ts"].iloc[-1].to_pydatetime()
     prediction_time = now_utc()
+    target_times = _target_times(last_bar_ts, timeframe, asset_class, len(values))
     predictions = [
-        PredictionItem(
-            target_time=last_bar_ts + step_delta * step,
-            predicted_value=value,
-        )
-        for step, value in enumerate(values, start=1)
+        PredictionItem(target_time=target_time, predicted_value=value)
+        for target_time, value in zip(target_times, values)
     ]
 
     # 4. Ghi ml.prediction (best-effort, không ảnh hưởng response)
@@ -364,7 +390,17 @@ def get_active_models():
             rmse = run_metrics.get("rmse")
             mape = run_metrics.get("mape_pct", run_metrics.get("mape"))
             if mae is not None and rmse is not None and mape is not None:
-                metrics = ModelMetrics(mae=mae, rmse=rmse, mape=mape)
+                metrics = ModelMetrics(
+                    mae=mae,
+                    rmse=rmse,
+                    mape=mape,
+                    naive_mae=run_metrics.get("naive_mae"),
+                    naive_rmse=run_metrics.get("naive_rmse"),
+                    naive_mape=run_metrics.get(
+                        "naive_mape_pct", run_metrics.get("naive_mape")
+                    ),
+                    directional_accuracy=run_metrics.get("directional_accuracy"),
+                )
         except MlflowException as exc:
             logger.warning(
                 "Could not read metrics for %s: %s", registered_model.name, exc
@@ -539,3 +575,236 @@ def get_ohlcv_history(
         }
         for row in rows
     ]
+
+
+# ==============================================================================
+# Data analytics endpoints (Phân tích dữ liệu / Thu thập & Làm sạch)
+# ==============================================================================
+
+# Upper bound on bars loaded per symbol for the quality profile (≈ 11 years of
+# hourly crypto) — keeps one request bounded even if ingestion runs for years.
+QUALITY_MAX_BARS = 100_000
+
+STATS_SQL = text(
+    "WITH base AS ("
+    "  SELECT o.symbol_id, o.ts, o.high, o.low, o.close, o.volume,"
+    "         o.close / NULLIF(LAG(o.close) OVER ("
+    "             PARTITION BY o.symbol_id ORDER BY o.ts), 0) - 1 AS ret"
+    "  FROM market.ohlcv o WHERE o.timeframe = :timeframe"
+    ") "
+    "SELECT s.ticker, s.asset_class::text AS asset_class, COUNT(*) AS bars,"
+    "       MIN(b.ts) AS first_ts, MAX(b.ts) AS last_ts,"
+    "       MIN(b.low) AS lowest_low, MAX(b.high) AS highest_high,"
+    "       AVG(b.close) AS mean_close, STDDEV_SAMP(b.close) AS std_close,"
+    "       (ARRAY_AGG(b.close ORDER BY b.ts))[1] AS first_close,"
+    "       (ARRAY_AGG(b.close ORDER BY b.ts DESC))[1] AS last_close,"
+    "       AVG(b.volume) AS mean_volume, MAX(b.volume) AS max_volume,"
+    "       STDDEV_SAMP(b.ret) AS return_std "
+    "FROM base b JOIN market.symbol s ON s.id = b.symbol_id "
+    "WHERE s.status = 'active' "
+    "GROUP BY s.ticker, s.asset_class "
+    "ORDER BY s.asset_class, s.ticker"
+)
+
+
+def _validate_timeframe(timeframe: str) -> str:
+    """Normalize a timeframe query parameter or raise 400."""
+    timeframe = timeframe.strip().lower()
+    if timeframe not in ALLOWED_TIMEFRAMES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid timeframe '{timeframe}'. Must be one of {ALLOWED_TIMEFRAMES}",
+        )
+    return timeframe
+
+
+def _fetch_rows(db: Session, statement, params: dict) -> list:
+    """Run a read-only query; map database failures to 503 with a log line."""
+    try:
+        return db.execute(statement, params).fetchall()
+    except SQLAlchemyError as exc:
+        logger.error("Analytics query failed: %s", exc)
+        raise HTTPException(
+            status_code=503, detail="Database unavailable for analytics query."
+        ) from exc
+
+
+def _optional_float(value) -> Optional[float]:
+    """Convert a nullable NUMERIC/float column to float."""
+    return None if value is None else float(value)
+
+
+@app.get(
+    "/api/v1/stats",
+    response_model=List[SymbolStats],
+    dependencies=[Depends(verify_api_key)],
+)
+def get_symbol_stats(
+    timeframe: str = Query("1d", description="Khung thời gian: 1d, 1h"),
+    db: Session = Depends(get_db),
+) -> List[SymbolStats]:
+    """
+    Thống kê mô tả dữ liệu đã làm sạch (market.ohlcv) cho mọi mã có dữ liệu:
+    số nến, khoảng thời gian, giá cao/thấp nhất, giá trung bình, khối lượng,
+    % thay đổi và độ lệch chuẩn lợi suất theo nến.
+    """
+    timeframe = _validate_timeframe(timeframe)
+    rows = _fetch_rows(db, STATS_SQL, {"timeframe": timeframe})
+    results: List[SymbolStats] = []
+    for row in rows:
+        first_close, last_close = float(row.first_close), float(row.last_close)
+        return_std = _optional_float(row.return_std)
+        results.append(
+            SymbolStats(
+                ticker=row.ticker,
+                asset_class=row.asset_class,
+                timeframe=timeframe,
+                bars=int(row.bars),
+                first_ts=row.first_ts,
+                last_ts=row.last_ts,
+                lowest_low=float(row.lowest_low),
+                highest_high=float(row.highest_high),
+                mean_close=float(row.mean_close),
+                std_close=_optional_float(row.std_close),
+                first_close=first_close,
+                last_close=last_close,
+                change_pct=(
+                    (last_close / first_close - 1.0) * 100.0 if first_close else None
+                ),
+                mean_volume=float(row.mean_volume),
+                max_volume=float(row.max_volume),
+                return_std_pct=None if return_std is None else return_std * 100.0,
+            )
+        )
+    return results
+
+
+@app.get(
+    "/api/v1/indicators",
+    response_model=IndicatorResponse,
+    dependencies=[Depends(verify_api_key)],
+)
+def get_indicators(
+    ticker: str = Query(..., description="Mã tài sản, VD: ACB, BTCUSDT"),
+    timeframe: str = Query("1d", description="Khung thời gian: 1d, 1h"),
+    limit: int = Query(250, ge=20, le=1000, description="Số nến hiển thị"),
+    db: Session = Depends(get_db),
+) -> IndicatorResponse:
+    """
+    Nến OHLCV kèm chỉ báo kỹ thuật (SMA 20/50, RSI 14, MACD 12-26-9) cho
+    dashboard phân tích. Nạp thêm INDICATOR_WARMUP_BARS nến trước cửa sổ hiển
+    thị để chỉ báo đã ổn định ngay ở nến đầu tiên.
+    """
+    timeframe = _validate_timeframe(timeframe)
+    symbol = normalize_ticker(ticker)
+    try:
+        symbol_id, _asset_class = _resolve_symbol(db, symbol)
+        history = _load_history(db, symbol_id, timeframe, limit + INDICATOR_WARMUP_BARS)
+    except SQLAlchemyError as exc:
+        logger.error("Indicator query failed for %s: %s", symbol, exc)
+        raise HTTPException(status_code=503, detail="Database unavailable.") from exc
+    if history.empty:
+        raise HTTPException(
+            status_code=404, detail=f"No {timeframe} OHLCV data for {symbol}."
+        )
+
+    featured = compute_indicators(history).tail(limit)
+    featured = featured.astype(object).where(featured.notna(), None)
+    points = [IndicatorPoint(**record) for record in featured.to_dict("records")]
+    return IndicatorResponse(ticker=symbol, timeframe=timeframe, points=points)
+
+
+def _latest_pipeline_checks(db: Session, timeframe: str) -> dict[str, PipelineCheck]:
+    """Latest cleaning-pipeline report per ticker from ops.data_quality_check."""
+    rows = _fetch_rows(
+        db,
+        text(
+            "SELECT DISTINCT ON (q.symbol_id) s.ticker, q.checked_at, q.passed, q.detail "
+            "FROM ops.data_quality_check q JOIN market.symbol s ON s.id = q.symbol_id "
+            "WHERE q.timeframe = :timeframe AND q.check_name = 'cleaning_pipeline' "
+            "ORDER BY q.symbol_id, q.checked_at DESC"
+        ),
+        {"timeframe": timeframe},
+    )
+    return {
+        row.ticker: PipelineCheck(
+            checked_at=row.checked_at, passed=bool(row.passed), detail=row.detail or {}
+        )
+        for row in rows
+    }
+
+
+@app.get(
+    "/api/v1/data-quality",
+    response_model=List[DataQualityReport],
+    dependencies=[Depends(verify_api_key)],
+)
+def get_data_quality(
+    timeframe: str = Query("1d", description="Khung thời gian: 1d, 1h"),
+    db: Session = Depends(get_db),
+) -> List[DataQualityReport]:
+    """
+    Hồ sơ chất lượng dữ liệu của từng mã, đo trực tiếp trên market.ohlcv
+    (độ đầy đủ so với lịch giao dịch, nến volume 0, nến OHLC không hợp lệ,
+    biến động/khối lượng bất thường theo IQR) kèm báo cáo gần nhất của
+    pipeline làm sạch ghi trong ops.data_quality_check.
+    """
+    timeframe = _validate_timeframe(timeframe)
+    symbols = _fetch_rows(
+        db,
+        text(
+            "SELECT DISTINCT s.id, s.ticker, s.asset_class::text AS asset_class "
+            "FROM market.symbol s JOIN market.ohlcv o ON o.symbol_id = s.id "
+            "WHERE s.status = 'active' AND o.timeframe = :timeframe "
+            "ORDER BY asset_class, s.ticker"
+        ),
+        {"timeframe": timeframe},
+    )
+    checks = _latest_pipeline_checks(db, timeframe)
+    reports: List[DataQualityReport] = []
+    for symbol in symbols:
+        try:
+            history = _load_history(db, int(symbol.id), timeframe, QUALITY_MAX_BARS)
+        except SQLAlchemyError as exc:
+            logger.error("Quality query failed for %s: %s", symbol.ticker, exc)
+            raise HTTPException(
+                status_code=503, detail="Database unavailable."
+            ) from exc
+        profile = profile_quality(history, symbol.asset_class, timeframe)
+        reports.append(
+            DataQualityReport(
+                ticker=symbol.ticker,
+                asset_class=symbol.asset_class,
+                timeframe=timeframe,
+                **asdict(profile),
+                last_pipeline_check=checks.get(symbol.ticker),
+            )
+        )
+    return reports
+
+
+@app.get(
+    "/api/v1/jobs",
+    response_model=List[JobLogEntry],
+    dependencies=[Depends(verify_api_key)],
+)
+def get_recent_jobs(
+    limit: int = Query(20, ge=1, le=100, description="Số job gần nhất trả về"),
+    db: Session = Depends(get_db),
+) -> List[JobLogEntry]:
+    """
+    Nhật ký tác vụ thu thập/làm sạch gần nhất (ops.job_log) do Celery worker
+    ghi, mới nhất trước.
+    """
+    rows = _fetch_rows(
+        db,
+        text(
+            "SELECT j.job_type::text AS job_type, j.job_name, j.status::text AS status,"
+            "       s.ticker, j.timeframe::text AS timeframe, j.started_at,"
+            "       j.finished_at, j.duration_ms, j.rows_affected, j.error_message "
+            "FROM ops.job_log j LEFT JOIN market.symbol s ON s.id = j.symbol_id "
+            "ORDER BY j.started_at DESC LIMIT :limit"
+        ),
+        {"limit": limit},
+    )
+    return [JobLogEntry(**dict(row._mapping)) for row in rows]
