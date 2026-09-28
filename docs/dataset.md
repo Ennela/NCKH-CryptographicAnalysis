@@ -33,6 +33,38 @@ Quyết định của nhóm:
 - Hướng lâu dài (chưa làm): viết adapter gọi trực tiếp API công khai của
   sàn/CTCK thay cho `vnstock`.
 
+## Mốc thời gian crypto trong snapshot lệch +7 giờ (phát hiện 2026-09-28)
+
+`BinanceAdapter` từng dựng thời điểm nến bằng `datetime.fromtimestamp(ms)` không
+kèm múi giờ, rồi `to_utc()` gắn nhãn UTC cho giá trị đó. Trên máy đặt giờ Việt
+Nam (UTC+7), nơi snapshot được backfill, mọi nến Binance vì vậy bị ghi **muộn
+7 giờ**: nến ngày mở lúc `00:00 UTC` được lưu thành `07:00 UTC`, nến giờ lệch
+đúng 7 bậc. Trong container Docker (UTC) mốc thời gian lại đúng, nên dữ liệu
+thu thập bằng Celery (ví dụ BTC/ETH 1h ngày 22/09/2026) không bị lệch.
+
+- **Đã sửa** ở `services/ingestion/adapters/binance_adapter.py` (dựng datetime
+  UTC trực tiếp), có test mô phỏng máy UTC+7.
+- **Không sửa dữ liệu cũ:** snapshot `group_dataset_v1` đã khóa bằng
+  fingerprint; mọi thí nghiệm đọc cùng một chuỗi nhất quán (chỉ nhãn thời gian
+  bị dời, thứ tự và khoảng cách các nến không đổi), nên kết quả benchmark không
+  bị ảnh hưởng. Khi xuất snapshot mới cần backfill lại crypto bằng code đã sửa.
+- Hệ quả khi nối dữ liệu mới vào sau snapshot: ở khung 1d nến 08/07/2026
+  (nhãn 07:00) nối tiếp nến 09/07/2026 (nhãn 00:00), không trùng ngày; ở khung
+  1h có một khoảng hở 7 nến tại chỗ nối.
+
+## Lấp khoảng trống dữ liệu crypto
+
+`scripts/backfill.py` có hai tùy chọn để lấp khoảng trống mà không động vào
+dữ liệu đã lưu:
+
+```bash
+docker compose run --rm ingestion python -m scripts.backfill \
+    --symbol BTC/USDT --resolution 1h --start 2026-07-09T02:00 --skip-existing
+```
+
+`--start` đặt mốc bắt đầu (UTC) thay cho `--days`; `--skip-existing` chỉ chèn
+những nến chưa có trong `market.ohlcv`, không ghi đè nến cũ.
+
 ## Export Snapshot
 
 Chạy khi Docker/Postgres đang hoạt động:

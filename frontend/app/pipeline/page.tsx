@@ -110,7 +110,7 @@ function SourcesPanel() {
 
 function CleaningPanel() {
   return (
-    <Panel title="2. Tổ chức & làm sạch dữ liệu" subtitle="services/ingestion/app/cleaning.py — chạy theo lịch: crypto mỗi giờ, cổ phiếu thứ 2–6 từ 09:00 UTC">
+    <Panel title="2. Tổ chức & làm sạch dữ liệu" subtitle="services/ingestion/app/cleaning.py — chạy theo lịch: crypto mỗi giờ, cổ phiếu thứ 2–6 từ 11:00 UTC (sau lượt thu thập 10:00 UTC)">
       <ol className="flex flex-col items-stretch">
         {CLEANING_STEPS.map((step, i) => (
           <li key={step.title} className="flex flex-col items-center">
