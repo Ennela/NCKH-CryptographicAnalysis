@@ -50,7 +50,12 @@ thu thập bằng Celery (ví dụ BTC/ETH 1h ngày 22/09/2026) không bị lệ
   bị ảnh hưởng. Khi xuất snapshot mới cần backfill lại crypto bằng code đã sửa.
 - Hệ quả khi nối dữ liệu mới vào sau snapshot: ở khung 1d nến 08/07/2026
   (nhãn 07:00) nối tiếp nến 09/07/2026 (nhãn 00:00), không trùng ngày; ở khung
-  1h có một khoảng hở 7 nến tại chỗ nối.
+  1h nhãn liền mạch (01:00 → 02:00 ngày 09/07/2026) nhưng 7 giờ dữ liệu thật
+  (08/07 19:00 – 09/07 01:00 UTC) không có trong DB.
+- Đã backfill 28/09/2026 bằng code đã sửa: 10 mã crypto khung 1h và 1d đầy đủ
+  từ 09/07 tới 28/09/2026; `scripts/check_group_dataset.py` vẫn PASS (không
+  động vào cửa sổ snapshot). FPT khung 1d còn thiếu 08/07 – 11/09/2026 vì cần
+  `vnstock` (xem mục trên).
 
 ## Lấp khoảng trống dữ liệu crypto
 
