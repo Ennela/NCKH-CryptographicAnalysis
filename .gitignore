@@ -47,6 +47,10 @@ artifacts/benchmarks/
 results/*.csv
 mlflow.db
 celerybeat-schedule
+
+# Tệp hướng dẫn AI do thư viện vnstock tự sinh khi container ingestion chạy;
+# không phải quy tắc của dự án (quy tắc nằm ở AGENTS.md gốc repo).
+services/ingestion/AGENTS.md
 data/raw/
 data/processed/
 data/snapshots/*
