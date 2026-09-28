@@ -1,106 +1,104 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import TechnicalChart from "@/components/chart";
-import { Play, Sparkles, Server, Info, Loader2, AlertCircle, BarChart3 } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Loader2, Play } from "lucide-react";
 import {
   ApiError,
-  fetchSymbols,
-  fetchOhlcv,
-  fetchPrediction,
+  describeApiError,
+  fetchIndicators,
   fetchModels,
-  timeframeForAssetClass,
-  type SymbolInfo,
+  fetchPrediction,
+  registryName,
+  type IndicatorPoint,
   type ModelInfo,
   type ModelName,
+  type PredictResponse,
+  type Timeframe,
 } from "@/lib/api";
+import { formatAxisTime, formatDate, formatNum, formatPct, formatPrice, timeframeLabel } from "@/lib/format";
+import { readIndicators, TONE_CLASS } from "@/lib/insights";
+import { useSymbols } from "@/lib/use-symbols";
+import ForecastChart, { ForecastLegend } from "@/components/forecast-chart";
+import { Badge, Field, FilterBar, MetricRow, PageHeader, Panel, StateBox } from "@/components/ui";
 
-interface ChartCandle {
-  time: string;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-}
+const HISTORY_BARS = 120;
+const STEP_OPTIONS = [1, 3, 5, 7, 14, 30];
+const MODELS: ModelName[] = ["arima", "xgboost", "random_forest", "gru"];
 
-interface ChartForecast {
-  time: string;
-  value: number;
-}
-
-const MODEL_METADATA: Record<ModelName, { name: string; type: string }> = {
-  arima: { name: "ARIMA Baseline", type: "Statistical" },
-  xgboost: { name: "XGBoost Regressor", type: "Machine Learning" },
-  random_forest: { name: "Random Forest Regressor", type: "Machine Learning (Ensemble)" },
-  gru: { name: "PyTorch GRU", type: "Deep Learning (Recurrent)" },
+const MODEL_INFO: Record<ModelName, { name: string; family: string; summary: string; caveat?: string }> = {
+  arima: {
+    name: "ARIMA",
+    family: "Thống kê chuỗi thời gian",
+    summary: "Mô hình tự hồi quy tích hợp trung bình trượt ARIMA(1, 1, 1) một biến trên giá đóng cửa; lấy sai phân bậc 1 để khử xu hướng, cập nhật trạng thái cuốn chiếu từng bước.",
+  },
+  xgboost: {
+    name: "XGBoost",
+    family: "Học máy — gradient boosting",
+    summary: "Tập hợp cây quyết định tăng cường trên 19 đặc trưng kỹ thuật (lag, SMA, độ lệch, RSI, MACD, Bollinger, ATR); siêu tham số tối ưu bằng Optuna.",
+    caveat: "Mô hình cây không ngoại suy được ra ngoài vùng giá đã thấy khi huấn luyện.",
+  },
+  random_forest: {
+    name: "Random Forest",
+    family: "Học máy — rừng ngẫu nhiên",
+    summary: "Trung bình nhiều cây quyết định huấn luyện trên mẫu bootstrap với 18 đặc trưng giá/khối lượng trễ và thống kê cuộn.",
+    caveat: "Mô hình cây không ngoại suy được ra ngoài vùng giá đã thấy khi huấn luyện.",
+  },
+  gru: {
+    name: "GRU",
+    family: "Học sâu — mạng hồi tiếp (PyTorch)",
+    summary: "Mạng GRU đọc chuỗi 8 đặc trưng; đầu ra là phần hiệu chỉnh cộng vào giá đóng cửa gần nhất (residual), khởi tạo đúng bằng baseline Naive.",
+  },
 };
 
-/** Format an ISO timestamp as a compact chart label (adds hour for intraday data). */
-function formatChartTime(isoStr: string, timeframe: "1d" | "1h"): string {
-  const d = new Date(isoStr);
-  const opts: Intl.DateTimeFormatOptions =
-    timeframe === "1h"
-      ? { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Ho_Chi_Minh" }
-      : { year: "2-digit", month: "2-digit", day: "2-digit", timeZone: "Asia/Ho_Chi_Minh" };
-  return d.toLocaleString("vi-VN", opts);
-}
-
-/** Format a metric value or a placeholder when the backend has no value. */
-function formatMetric(val: number | null | undefined, decimals: number = 4): string {
-  if (val === null || val === undefined || Number.isNaN(val)) return "—";
-  return val.toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
-}
-
 export default function ForecastPage() {
-  const [symbols, setSymbols] = useState<SymbolInfo[]>([]);
-  const [symbolsError, setSymbolsError] = useState<string | null>(null);
-  const [ticker, setTicker] = useState<string>("");
-  const [modelName, setModelName] = useState<ModelName>("xgboost");
+  const { symbols, ticker, setTicker, selected, error: symbolsError, reload: reloadSymbols } = useSymbols();
+  const [modelName, setModelName] = useState<ModelName>("gru");
+  const [timeframe, setTimeframe] = useState<Timeframe>("1d");
   const [steps, setSteps] = useState(5);
 
-  const [chartHistory, setChartHistory] = useState<ChartCandle[]>([]);
-  const [chartForecasts, setChartForecasts] = useState<ChartForecast[]>([]);
-  const [historyLoading, setHistoryLoading] = useState(false);
+  const [history, setHistory] = useState<IndicatorPoint[]>([]);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
-  const [forecastLoading, setForecastLoading] = useState(false);
+  const [forecast, setForecast] = useState<PredictResponse | null>(null);
   const [forecastError, setForecastError] = useState<string | null>(null);
+  const [forecastLoading, setForecastLoading] = useState(false);
 
   const [models, setModels] = useState<ModelInfo[]>([]);
-  const [modelsLoading, setModelsLoading] = useState(true);
   const [modelsError, setModelsError] = useState<string | null>(null);
 
-  const selectedSymbol = symbols.find((s) => s.ticker === ticker);
-  const timeframe = timeframeForAssetClass(selectedSymbol?.asset_class);
+  const assetClass = selected?.asset_class ?? "stock";
+  // Only crypto has hourly data; switching to a stock resets the timeframe.
+  useEffect(() => {
+    if (assetClass !== "crypto") setTimeframe("1d");
+  }, [assetClass]);
 
-  // Load ticker list once on mount.
-  const loadSymbols = useCallback(async () => {
-    setSymbolsError(null);
+  const loadHistory = useCallback(async () => {
+    if (!ticker) return;
+    setHistoryLoading(true);
+    setHistoryError(null);
+    setForecast(null);
+    setForecastError(null);
     try {
-      const data = await fetchSymbols();
-      setSymbols(data);
-      if (data.length > 0) {
-        setTicker((prev) => (prev && data.some((s) => s.ticker === prev) ? prev : data[0].ticker));
-      }
+      setHistory((await fetchIndicators(ticker, timeframe, HISTORY_BARS)).points);
     } catch (err) {
-      setSymbolsError(err instanceof Error ? err.message : "Lỗi kết nối API");
+      setHistory([]);
+      setHistoryError(describeApiError(err));
+    } finally {
+      setHistoryLoading(false);
     }
-  }, []);
+  }, [ticker, timeframe]);
 
   useEffect(() => {
-    loadSymbols();
-  }, [loadSymbols]);
+    loadHistory();
+  }, [loadHistory]);
 
-  // Load registered model metrics for the comparison table.
   const loadModels = useCallback(async () => {
-    setModelsLoading(true);
     setModelsError(null);
     try {
       setModels(await fetchModels());
     } catch (err) {
-      setModelsError(err instanceof Error ? err.message : "Lỗi kết nối API");
-    } finally {
-      setModelsLoading(false);
+      setModelsError(describeApiError(err));
     }
   }, []);
 
@@ -108,325 +106,277 @@ export default function ForecastPage() {
     loadModels();
   }, [loadModels]);
 
-  // Reload real OHLCV history whenever the selected ticker changes.
-  const loadHistory = useCallback(async () => {
-    if (!ticker || !selectedSymbol) return;
-    setHistoryLoading(true);
-    setHistoryError(null);
-    setChartForecasts([]);
-    setForecastError(null);
-    try {
-      const rows = await fetchOhlcv(ticker, timeframe, 120);
-      // API returns newest-first — reverse to chronological order for charting.
-      const chronological = [...rows].reverse();
-      setChartHistory(
-        chronological.map((c) => ({
-          time: formatChartTime(c.ts, timeframe),
-          open: c.open,
-          high: c.high,
-          low: c.low,
-          close: c.close,
-        }))
-      );
-    } catch (err) {
-      setChartHistory([]);
-      setHistoryError(err instanceof Error ? err.message : "Lỗi kết nối API");
-    } finally {
-      setHistoryLoading(false);
-    }
-  }, [ticker, selectedSymbol, timeframe]);
-
-  useEffect(() => {
-    loadHistory();
-  }, [loadHistory]);
-
-  const handleRunForecast = async () => {
-    if (!ticker) return;
+  const runForecast = async () => {
     setForecastLoading(true);
     setForecastError(null);
     try {
-      const result = await fetchPrediction(ticker, modelName, steps, timeframe);
-      setChartForecasts(
-        result.predictions.map((p) => ({
-          time: formatChartTime(p.target_time, timeframe),
-          value: p.predicted_value,
-        }))
-      );
+      setForecast(await fetchPrediction(ticker, modelName, steps, timeframe));
     } catch (err) {
-      setChartForecasts([]);
-      if (err instanceof ApiError && err.status === 503) {
-        setForecastError(
-          `Model "${modelName}" chưa được đăng ký trong MLflow Registry — hãy chạy python -m services.training.train_${modelName} trước.`
-        );
-      } else if (err instanceof ApiError && err.status === 404) {
-        setForecastError(`Không tìm thấy mã ${ticker} trong hệ thống. Hãy kiểm tra lại danh sách symbols.`);
-      } else if (err instanceof ApiError && err.status === 401) {
-        setForecastError("API key không hợp lệ. Kiểm tra biến NEXT_PUBLIC_API_KEY trong .env.local.");
-      } else {
-        setForecastError(err instanceof Error ? err.message : "Lỗi kết nối API");
-      }
+      setForecast(null);
+      setForecastError(
+        err instanceof ApiError && err.status === 503
+          ? `Chưa có mô hình ${registryName(ticker, timeframe, modelName)} trong MLflow Registry. Huấn luyện bằng: python train_${modelName}.py --ticker ${ticker} --timeframe ${timeframe}`
+          : describeApiError(err)
+      );
     } finally {
       setForecastLoading(false);
     }
   };
 
-  const selectedModelInfo = models.find((m) => m.model_name === modelName);
+  const registry = models.find((m) => m.model_name === registryName(ticker, timeframe, modelName));
 
   return (
-    <div className="space-y-8">
-      <div>
-        <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-200">Dự Báo Chuỗi Thời Gian</h1>
-        <p className="text-slate-500 text-sm mt-1">
-          Chạy các mô hình Machine Learning / Deep Learning đã đăng ký trong MLflow Registry trên dữ liệu lịch sử thật.
-        </p>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        title="Phân tích & Dự báo"
+        description="Chạy mô hình đã huấn luyện và đăng ký trong MLflow Registry trên dữ liệu thật; so sánh sai số với baseline Naive trên cùng tập kiểm thử."
+      />
 
-      <div className="grid grid-cols-1 xl:grid-cols-4 gap-8">
-        {/* Controls Panel */}
-        <div className="xl:col-span-1 glass-panel p-6 rounded-xl border border-darkBorder space-y-6">
-          <div className="flex items-center gap-2 text-glowIndigo font-semibold">
-            <Sparkles className="w-5 h-5" />
-            <span>Tham Số Mô Hình</span>
-          </div>
-
-          <div className="space-y-4">
-            {/* Symbol Selection */}
-            <div className="space-y-2">
-              <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Mã Tài Sản</label>
-              {symbolsError ? (
-                <div className="text-xs text-glowRose space-y-2">
-                  <p>Không tải được danh sách mã: {symbolsError}</p>
-                  <button
-                    onClick={loadSymbols}
-                    className="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 border border-darkBorder hover:bg-slate-700 transition-all"
-                  >
-                    Thử lại
-                  </button>
-                </div>
-              ) : (
-                <select
-                  value={ticker}
-                  onChange={(e) => setTicker(e.target.value)}
-                  disabled={symbols.length === 0}
-                  className="w-full bg-slate-900 border border-darkBorder rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-glowIndigo disabled:text-slate-600"
-                >
-                  {symbols.length === 0 && <option value="">Đang tải danh sách mã...</option>}
-                  {symbols.map((sym) => (
-                    <option key={sym.ticker} value={sym.ticker}>
-                      {sym.ticker} ({sym.asset_class === "crypto" ? "Crypto" : "Stock VN"})
-                    </option>
-                  ))}
-                </select>
-              )}
-            </div>
-
-            {/* Model Selection */}
-            <div className="space-y-2">
-              <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Chọn Mô Hình</label>
-              <select
-                value={modelName}
-                onChange={(e) => setModelName(e.target.value as ModelName)}
-                className="w-full bg-slate-900 border border-darkBorder rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-glowIndigo"
-              >
-                <option value="arima">ARIMA Baseline</option>
-                <option value="xgboost">XGBoost Regressor</option>
-                <option value="random_forest">Random Forest Regressor</option>
-                <option value="gru">GRU (PyTorch Deep Learning)</option>
-              </select>
-            </div>
-
-            {/* Steps (Slider) */}
-            <div className="space-y-2">
-              <div className="flex justify-between text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                <span>Số Bước Dự Báo</span>
-                <span className="text-glowIndigo font-bold">{steps} bước</span>
-              </div>
-              <input
-                type="range"
-                min="1"
-                max="30"
-                value={steps}
-                onChange={(e) => setSteps(parseInt(e.target.value))}
-                className="w-full accent-glowIndigo"
-              />
-              <span className="text-[10px] text-slate-500 block">
-                {timeframe === "1h" ? "Khung 1 giờ / bước" : "Khung 1 ngày / bước"}
-              </span>
-            </div>
-
-            {/* Action button */}
-            <button
-              onClick={handleRunForecast}
-              disabled={forecastLoading || historyLoading || !ticker || chartHistory.length === 0}
-              className="w-full py-3 rounded-lg bg-glowIndigo hover:bg-glowIndigo/85 disabled:bg-slate-800 disabled:text-slate-600 transition-all font-bold text-sm text-white flex items-center justify-center gap-2 border border-glowIndigo/20 shadow-lg shadow-glowIndigo/15"
-            >
-              {forecastLoading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Đang chạy mô hình...</span>
-                </>
-              ) : (
-                <>
-                  <Play className="w-4 h-4 fill-white" />
-                  <span>Kích Hoạt Dự Báo</span>
-                </>
-              )}
-            </button>
-
-            {/* Forecast error */}
-            {forecastError && (
-              <div className="p-3 rounded-lg bg-red-500/5 border border-red-500/20 flex gap-2 items-start">
-                <AlertCircle className="w-4 h-4 text-glowRose shrink-0 mt-0.5" />
-                <div className="text-xs space-y-1.5">
-                  <p className="text-glowRose leading-relaxed">{forecastError}</p>
-                  <button
-                    onClick={handleRunForecast}
-                    className="px-3 py-1 rounded bg-slate-800 text-slate-300 border border-darkBorder hover:bg-slate-700 transition-all"
-                  >
-                    Thử lại
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="pt-4 border-t border-darkBorder space-y-3">
-            <div className="flex items-center gap-1.5 text-xs text-slate-400 font-semibold">
-              <Info className="w-4 h-4 text-slate-500" />
-              <span>Thông Tin Thuật Toán</span>
-            </div>
-
-            <div className="bg-slate-900/50 rounded-lg p-3 border border-darkBorder/40 space-y-2 text-xs">
-              <div>
-                <span className="text-slate-500 block">Tên hiển thị:</span>
-                <span className="font-semibold text-slate-300">{MODEL_METADATA[modelName].name}</span>
-              </div>
-              <div>
-                <span className="text-slate-500 block">Phân loại:</span>
-                <span className="font-semibold text-slate-300">{MODEL_METADATA[modelName].type}</span>
-              </div>
-              <div>
-                <span className="text-slate-500 block">MAPE (tập test):</span>
-                <span className="font-semibold text-glowEmerald">
-                  {selectedModelInfo ? `${formatMetric(selectedModelInfo.metrics.mape, 2)}%` : "Chưa có dữ liệu đánh giá"}
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Chart View */}
-        <div className="xl:col-span-3 space-y-6">
-          {historyLoading ? (
-            <div className="glass-card rounded-xl border border-darkBorder p-6 h-[520px] flex flex-col items-center justify-center gap-3">
-              <Loader2 className="w-8 h-8 text-glowIndigo animate-spin" />
-              <span className="text-slate-400 text-sm">Đang tải dữ liệu lịch sử {ticker}...</span>
-            </div>
-          ) : historyError ? (
-            <div className="glass-card rounded-xl border border-red-500/20 p-6 h-[520px] flex flex-col items-center justify-center gap-3">
-              <AlertCircle className="w-8 h-8 text-glowRose" />
-              <span className="text-glowRose font-semibold text-sm">Không thể tải dữ liệu lịch sử</span>
-              <span className="text-slate-500 text-xs text-center max-w-md">{historyError}</span>
-              <button
-                onClick={loadHistory}
-                className="mt-2 px-4 py-1.5 rounded-lg bg-slate-800 text-slate-300 text-xs border border-darkBorder hover:bg-slate-700 transition-all"
-              >
-                Thử lại
-              </button>
-            </div>
-          ) : chartHistory.length === 0 ? (
-            <div className="glass-card rounded-xl border border-darkBorder p-6 h-[520px] flex flex-col items-center justify-center gap-3">
-              <BarChart3 className="w-8 h-8 text-slate-600" />
-              <span className="text-slate-500 text-sm">
-                {ticker ? `Chưa có dữ liệu OHLCV cho mã ${ticker}.` : "Chưa chọn mã tài sản."}
-              </span>
-              <span className="text-slate-600 text-xs">Hãy chạy ingestion service để thu thập dữ liệu.</span>
-            </div>
+      <FilterBar>
+        <Field label="Tài sản mục tiêu">
+          {symbolsError ? (
+            <button onClick={reloadSymbols} className="btn-secondary h-[42px]">Lỗi tải danh sách — thử lại</button>
           ) : (
-            <TechnicalChart symbol={ticker} history={chartHistory} forecasts={chartForecasts} />
+            <select className="field-select" value={ticker} onChange={(e) => setTicker(e.target.value)} disabled={symbols.length === 0}>
+              {symbols.map((s) => (
+                <option key={s.ticker} value={s.ticker}>{s.ticker} ({s.asset_class === "crypto" ? "Crypto" : "Cổ phiếu VN"})</option>
+              ))}
+            </select>
           )}
+        </Field>
+        <Field label="Mô hình huấn luyện">
+          <select className="field-select" value={modelName} onChange={(e) => setModelName(e.target.value as ModelName)}>
+            {MODELS.map((m) => (
+              <option key={m} value={m}>{MODEL_INFO[m].name}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Khung thời gian">
+          <select className="field-select" value={timeframe} onChange={(e) => setTimeframe(e.target.value as Timeframe)}>
+            <option value="1d">1 ngày</option>
+            <option value="1h" disabled={assetClass !== "crypto"}>1 giờ (chỉ crypto)</option>
+          </select>
+        </Field>
+        <Field label="Số bước dự báo">
+          <select className="field-select" value={steps} onChange={(e) => setSteps(Number(e.target.value))}>
+            {STEP_OPTIONS.map((n) => (
+              <option key={n} value={n}>{n} {timeframe === "1h" ? "giờ" : "phiên"} tới</option>
+            ))}
+          </select>
+        </Field>
+        <button className="btn-primary" onClick={runForecast} disabled={forecastLoading || historyLoading || !ticker || history.length === 0}>
+          {forecastLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+          Tiến hành dự báo
+        </button>
+      </FilterBar>
 
-          {/* Model Metrics Table */}
-          <div className="glass-panel rounded-xl border border-darkBorder overflow-hidden">
-            <div className="py-4 px-6 border-b border-darkBorder flex justify-between items-center">
-              <h3 className="text-sm font-bold tracking-tight text-slate-300">Mô Hình Đã Đăng Ký (MLflow Registry)</h3>
-              {modelsError && (
-                <button
-                  onClick={loadModels}
-                  className="text-xs px-3 py-1 rounded bg-slate-800 text-slate-300 border border-darkBorder hover:bg-slate-700 transition-all"
-                >
-                  Thử lại
-                </button>
-              )}
-            </div>
-            {modelsLoading ? (
-              <div className="p-8 flex items-center justify-center gap-2 text-slate-500 text-sm">
-                <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Đang tải danh sách mô hình...</span>
-              </div>
-            ) : modelsError ? (
-              <div className="p-8 flex flex-col items-center gap-2">
-                <AlertCircle className="w-6 h-6 text-glowRose" />
-                <span className="text-glowRose text-sm font-semibold">Không thể tải danh sách mô hình</span>
-                <span className="text-slate-500 text-xs">{modelsError}</span>
-              </div>
-            ) : models.length === 0 ? (
-              <div className="p-8 flex flex-col items-center gap-2 text-center">
-                <Server className="w-6 h-6 text-slate-600" />
-                <span className="text-slate-500 text-sm">Chưa có mô hình nào được đăng ký trong MLflow Registry.</span>
-                <span className="text-slate-600 text-xs">
-                  Chạy các entrypoint train (python -m services.training.train_&lt;model&gt;) để đăng ký mô hình.
-                </span>
-              </div>
-            ) : (
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-darkBorder bg-slate-900/40 text-slate-400 text-xs font-semibold uppercase tracking-wider">
-                    <th className="py-3 px-6">Mô Hình</th>
-                    <th className="py-3 px-6">Phiên Bản</th>
-                    <th className="py-3 px-6">Trạng Thái</th>
-                    <th className="py-3 px-6 text-right">MAE</th>
-                    <th className="py-3 px-6 text-right">RMSE</th>
-                    <th className="py-3 px-6 text-right">MAPE (%)</th>
-                    <th className="py-3 px-6 text-right">Cập Nhật</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-darkBorder/40">
-                  {models.map((m) => (
-                    <tr key={`${m.model_name}-${m.version}`} className="hover:bg-slate-800/25 transition-all text-sm text-slate-300">
-                      <td className="py-3 px-6 font-bold text-glowIndigo">{m.model_name}</td>
-                      <td className="py-3 px-6 text-slate-400">v{m.version}</td>
-                      <td className="py-3 px-6">
-                        <span className="text-xs px-2.5 py-0.5 rounded-full font-medium bg-emerald-500/10 text-glowEmerald border border-emerald-500/20">
-                          {m.status}
-                        </span>
-                      </td>
-                      <td className="py-3 px-6 text-right font-mono text-xs">{formatMetric(m.metrics.mae)}</td>
-                      <td className="py-3 px-6 text-right font-mono text-xs">{formatMetric(m.metrics.rmse)}</td>
-                      <td className="py-3 px-6 text-right font-mono text-xs text-glowEmerald">{formatMetric(m.metrics.mape, 2)}</td>
-                      <td className="py-3 px-6 text-right text-xs text-slate-500">
-                        {m.last_updated ? new Date(m.last_updated).toLocaleDateString("vi-VN") : "—"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-
-          <div className="glass-panel p-4 rounded-xl border border-darkBorder flex items-center gap-3">
-            <div className="p-2 rounded bg-glowIndigo/10 text-glowIndigo border border-glowIndigo/20">
-              <Server className="w-5 h-5" />
-            </div>
-            <div className="text-xs">
-              <span className="font-semibold block text-slate-300">Kết nối MLflow Registry / Redis Cache</span>
-              <p className="text-slate-500">
-                Dự báo được phục vụ bởi inference service; mô hình tải từ MLflow Registry và được cache trên Redis.
-              </p>
-            </div>
-          </div>
-        </div>
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_400px] xl:grid-rows-[auto_auto]">
+        <ChartPanel
+          ticker={ticker}
+          timeframe={timeframe}
+          history={history}
+          forecast={forecast}
+          loading={historyLoading}
+          error={historyError}
+          forecastError={forecastError}
+          onRetry={loadHistory}
+        />
+        <EvaluationPanel registry={registry} modelsError={modelsError} name={registryName(ticker, timeframe, modelName)} />
+        <SummaryPanel model={modelName} history={history} forecast={forecast} assetClass={assetClass} />
       </div>
+
+      {forecast && <ForecastTable forecast={forecast} lastClose={history[history.length - 1]?.close} assetClass={assetClass} timeframe={timeframe} />}
+      <ComparisonTable models={models} ticker={ticker} timeframe={timeframe} />
     </div>
+  );
+}
+
+function ChartPanel(props: {
+  ticker: string;
+  timeframe: Timeframe;
+  history: IndicatorPoint[];
+  forecast: PredictResponse | null;
+  loading: boolean;
+  error: string | null;
+  forecastError: string | null;
+  onRetry: () => void;
+}) {
+  const { ticker, timeframe, history, forecast, loading, error, forecastError, onRetry } = props;
+  const historyPoints = history.map((p) => ({ label: formatAxisTime(p.ts, timeframe), value: p.close }));
+  const forecastPoints = (forecast?.predictions ?? []).map((p) => ({ label: formatAxisTime(p.target_time, timeframe), value: p.predicted_value }));
+
+  return (
+    <section className="panel flex flex-col gap-3 p-5 xl:row-span-2">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="text-[25px] font-bold text-white">Biểu đồ dự đoán</h2>
+          <p className="text-xs text-slate-400">{ticker} · khung {timeframeLabel(timeframe)} · {history.length} nến gần nhất</p>
+        </div>
+        <ForecastLegend />
+      </div>
+      {forecastError && <div className="rounded border border-down/40 bg-down/10 px-3 py-2 text-sm text-rose-200">{forecastError}</div>}
+      <div className="h-[560px]">
+        {loading ? (
+          <StateBox kind="loading" message={`Đang tải dữ liệu ${ticker}…`} height="h-full" />
+        ) : error ? (
+          <StateBox kind="error" message="Không tải được dữ liệu lịch sử" hint={error} onRetry={onRetry} height="h-full" />
+        ) : history.length === 0 ? (
+          <StateBox kind="empty" message={`Chưa có dữ liệu khung ${timeframeLabel(timeframe)} cho ${ticker || "mã này"}`} height="h-full" />
+        ) : (
+          <ForecastChart history={historyPoints} forecast={forecastPoints} />
+        )}
+      </div>
+    </section>
+  );
+}
+
+/** "% tốt hơn Naive" note for an error metric (lower is better). */
+function vsNaive(model: number, naive: number | null, decimals: number = 4): string {
+  if (naive === null || naive === 0) return "Chưa có số liệu Naive cho run này";
+  const gain = (1 - model / naive) * 100;
+  return `Naive: ${formatNum(naive, decimals)} · ${gain >= 0 ? "tốt hơn" : "kém hơn"} ${formatNum(Math.abs(gain), 1)}%`;
+}
+
+function EvaluationPanel({ registry, modelsError, name }: { registry?: ModelInfo; modelsError: string | null; name: string }) {
+  const m = registry?.metrics;
+  return (
+    <section className="panel flex flex-col gap-3 p-5">
+      <div>
+        <h2 className="text-[25px] font-bold text-white">Đánh giá Mô hình</h2>
+        <p className="text-sm text-muted">Trên tập dữ liệu kiểm thử (Test set)</p>
+      </div>
+      {modelsError ? (
+        <p className="text-sm text-down">Không đọc được MLflow Registry: {modelsError}</p>
+      ) : !registry ? (
+        <p className="text-sm text-slate-400">Chưa có <span className="font-mono">{name}</span> trong Registry.</p>
+      ) : !m ? (
+        <p className="text-sm text-slate-400">Run huấn luyện không ghi MAE/RMSE/MAPE.</p>
+      ) : (
+        <>
+          <MetricRow label="Root Mean Sq. Error (RMSE)" value={formatNum(m.rmse, 4)} note={vsNaive(m.rmse, m.naive_rmse)} />
+          <MetricRow label="Mean Absolute Error (MAE)" value={formatNum(m.mae, 4)} note={vsNaive(m.mae, m.naive_mae)} />
+          <MetricRow label="MAPE" value={`${formatNum(m.mape, 3)}%`} note={vsNaive(m.mape, m.naive_mape, 3)} />
+          <MetricRow
+            label="Directional accuracy"
+            value={m.directional_accuracy === null ? "—" : `${formatNum(m.directional_accuracy * 100, 1)}%`}
+            note="Tỷ lệ đoán đúng chiều tăng/giảm"
+          />
+          <p className="text-[11px] text-slate-500">
+            {registry.model_name} · v{registry.version} · cập nhật {formatDate(registry.last_updated)}
+          </p>
+        </>
+      )}
+    </section>
+  );
+}
+
+function SummaryPanel({ model, history, forecast, assetClass }: { model: ModelName; history: IndicatorPoint[]; forecast: PredictResponse | null; assetClass: string }) {
+  const info = MODEL_INFO[model];
+  const lastClose = history[history.length - 1]?.close;
+  const finalValue = forecast?.predictions[forecast.predictions.length - 1]?.predicted_value;
+  const move = lastClose && finalValue !== undefined ? (finalValue / lastClose - 1) * 100 : null;
+  const insights = readIndicators(history);
+
+  return (
+    <section className="panel flex flex-col gap-3 p-5">
+      <h2 className="text-[25px] font-bold text-white">Tóm tắt thuật toán</h2>
+      <div className="metric-box space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="font-semibold text-white">{info.name}</span>
+          <Badge tone="slate">{info.family}</Badge>
+        </div>
+        <p className="text-sm leading-relaxed text-slate-300">{info.summary}</p>
+        {info.caveat && <p className="text-xs text-amber-300">Lưu ý: {info.caveat}</p>}
+      </div>
+      <div className="metric-box space-y-2">
+        <h3 className="font-semibold text-white">Phân tích chuyên sâu:</h3>
+        {move !== null && (
+          <p className={`text-sm ${move >= 0 ? "text-up" : "text-down"}`}>
+            • Mô hình dự báo giá {move >= 0 ? "tăng" : "giảm"} {formatPct(Math.abs(move)).replace("+", "")} sau {forecast?.predictions.length} bước
+            (từ {formatPrice(lastClose, assetClass)} → {formatPrice(finalValue, assetClass)}).
+          </p>
+        )}
+        {insights.map((item) => (
+          <p key={item.text} className={`text-sm ${TONE_CLASS[item.tone]}`}>• {item.text}</p>
+        ))}
+        {!forecast && <p className="text-xs text-slate-500">Bấm “Tiến hành dự báo” để thêm nhận định về kết quả dự báo.</p>}
+      </div>
+    </section>
+  );
+}
+
+function ForecastTable({ forecast, lastClose, assetClass, timeframe }: { forecast: PredictResponse; lastClose?: number; assetClass: string; timeframe: string }) {
+  return (
+    <Panel title="Kết quả dự báo chi tiết" subtitle={`Tạo lúc ${formatDate(forecast.prediction_time, true)} · mô hình ${forecast.model_name}`} bodyClassName="overflow-x-auto">
+      <table className="data-table">
+        <thead>
+          <tr>
+            <th>Bước</th>
+            <th>Thời điểm dự báo</th>
+            <th className="text-right">Giá dự báo</th>
+            <th className="text-right">So với giá đóng cửa cuối</th>
+          </tr>
+        </thead>
+        <tbody>
+          {forecast.predictions.map((p, i) => (
+            <tr key={p.target_time}>
+              <td>{i + 1}</td>
+              <td className="font-mono text-xs">{formatDate(p.target_time, timeframe === "1h")}</td>
+              <td className="text-right font-mono text-forecast">{formatPrice(p.predicted_value, assetClass)}</td>
+              <td className="text-right font-mono">{lastClose ? formatPct((p.predicted_value / lastClose - 1) * 100) : "—"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </Panel>
+  );
+}
+
+function ComparisonTable({ models, ticker, timeframe }: { models: ModelInfo[]; ticker: string; timeframe: Timeframe }) {
+  const rows = MODELS.map((m) => ({ key: m, info: models.find((x) => x.model_name === registryName(ticker, timeframe, m)) }));
+  const ratios = rows.map((r) => (r.info?.metrics?.naive_rmse ? r.info.metrics.rmse / r.info.metrics.naive_rmse : null));
+  const best = Math.min(...ratios.filter((x): x is number => x !== null));
+
+  return (
+    <Panel
+      title={`So sánh 4 mô hình — ${ticker} khung ${timeframeLabel(timeframe)}`}
+      subtitle="RMSE/Naive < 1 nghĩa là mô hình tốt hơn dự báo “giá ngày mai = giá hôm nay”"
+      bodyClassName="overflow-x-auto"
+    >
+      <table className="data-table whitespace-nowrap">
+        <thead>
+          <tr>
+            <th>Mô hình</th>
+            <th>Phiên bản</th>
+            <th className="text-right">RMSE</th>
+            <th className="text-right">RMSE Naive</th>
+            <th className="text-right">RMSE / Naive</th>
+            <th className="text-right">MAE</th>
+            <th className="text-right">MAPE</th>
+            <th className="text-right">Đúng chiều</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(({ key, info }, i) => {
+            const m = info?.metrics;
+            const ratio = ratios[i];
+            return (
+              <tr key={key}>
+                <td className="font-semibold text-white">
+                  {MODEL_INFO[key].name} {ratio !== null && ratio === best && <Badge tone="green">Tốt nhất</Badge>}
+                </td>
+                <td className="text-slate-400">{info ? `v${info.version}` : "chưa huấn luyện"}</td>
+                <td className="text-right font-mono">{formatNum(m?.rmse, 4)}</td>
+                <td className="text-right font-mono text-slate-400">{formatNum(m?.naive_rmse, 4)}</td>
+                <td className={`text-right font-mono ${ratio === null ? "" : ratio < 1 ? "text-up" : "text-down"}`}>{formatNum(ratio, 3)}</td>
+                <td className="text-right font-mono">{formatNum(m?.mae, 4)}</td>
+                <td className="text-right font-mono">{m ? `${formatNum(m.mape, 3)}%` : "—"}</td>
+                <td className="text-right font-mono">{m?.directional_accuracy == null ? "—" : `${formatNum(m.directional_accuracy * 100, 1)}%`}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </Panel>
   );
 }

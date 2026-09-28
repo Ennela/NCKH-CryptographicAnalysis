@@ -1,20 +1,18 @@
 # Tài Liệu Hợp Đồng API (Inference Service)
 
 Dịch vụ Inference cung cấp các HTTP API RESTful phục vụ dự báo giá, tra cứu mô
-hình, danh sách mã tài sản, dữ liệu OHLCV lịch sử và giải thích mô hình (SHAP).
+hình, danh sách mã tài sản, dữ liệu OHLCV lịch sử, giải thích mô hình (SHAP) và
+các API phân tích dữ liệu (thống kê, chỉ báo kỹ thuật, chất lượng dữ liệu, nhật
+ký job).
 
 *   **Phiên bản API**: `v1`
 *   **Base URL**: `http://localhost:8000` (các endpoint nghiệp vụ nằm dưới `/api/v1`)
-*   **Cập nhật lần cuối**: 26/07/2026 — đối chiếu với `services/inference/main.py`
-    và `shared/schemas/predict.py`.
+*   **Cập nhật lần cuối**: 28/09/2026 — đối chiếu với `services/inference/main.py`,
+    `shared/schemas/predict.py` và `shared/schemas/analytics.py`.
 
-> **Trạng thái triển khai (quan trọng):** `POST /api/v1/predict` và
-> `GET /api/v1/models` trong `services/inference/main.py` hiện vẫn trả kết quả
-> **mock** (quỹ đạo giá giả lập, danh sách model cứng) để frontend phát triển
-> song song. Một PR backend đang chạy song song ("feat: real model inference")
-> sẽ thay phần mock bằng inference thật **theo đúng contract mô tả trong tài
-> liệu này** (kèm endpoint mới `GET /api/v1/explain`). Các endpoint
-> `/health`, `/api/v1/symbols`, `/api/v1/ohlcv` đã hoạt động thật trên DB.
+> **Trạng thái triển khai:** mọi endpoint trong tài liệu này chạy thật trên
+> PostgreSQL/TimescaleDB và MLflow Registry (không còn mock từ PR #40).
+> Mục 8–11 (analytics) được thêm ở nhánh `feature/frontend-redesign`.
 
 ---
 
@@ -139,33 +137,30 @@ sàng phục vụ, kèm metrics thu được trên tập Test.
 
 ### Response (JSON - 200 OK)
 
-Danh sách đối tượng `{model_name, version, status, metrics{mae, rmse, mape},
-last_updated}`.
+Danh sách đối tượng `{model_name, version, status, metrics, last_updated}`.
+`model_name` là tên trong Registry dạng `<TICKER>_<timeframe>_<model>`.
+`metrics` là `null` nếu run huấn luyện không ghi đủ MAE/RMSE/MAPE; các trường
+`naive_*` (baseline Naive trên cùng tập test) và `directional_accuracy` là
+`null` nếu run không ghi.
 
-**Ví dụ Response Body**:
+**Ví dụ Response Body** (minh họa định dạng — số liệu thí nghiệm chính thức xem
+`docs/experiment_report.md`):
 
 ```json
 [
   {
-    "model_name": "arima",
-    "version": "3",
+    "model_name": "ACB_1d_gru",
+    "version": "2",
     "status": "active",
-    "metrics": { "mae": 0.2723, "rmse": 0.3882, "mape": 0.0131 },
-    "last_updated": "2026-07-23T14:30:15Z"
-  },
-  {
-    "model_name": "xgboost",
-    "version": "1",
-    "status": "active",
-    "metrics": { "mae": 0.4826, "rmse": 0.6484, "mape": 0.0228 },
-    "last_updated": "2026-07-23T14:30:15Z"
+    "metrics": {
+      "mae": 0.2731, "rmse": 0.3874, "mape": 1.3102,
+      "naive_mae": 0.2727, "naive_rmse": 0.3902, "naive_mape": 1.3087,
+      "directional_accuracy": 0.551
+    },
+    "last_updated": "2026-09-16T10:12:03Z"
   }
 ]
 ```
-
-> Trạng thái hiện tại: handler đang trả danh sách mock cố định (còn chứa
-> `lstm`); việc đọc thật từ MLflow Registry thuộc PR backend song song nêu ở
-> đầu tài liệu.
 
 ---
 
@@ -300,11 +295,64 @@ cây (hiện áp dụng cho `xgboost`).
 
 ---
 
-## 8. Mã Lỗi Phổ Biến (tổng hợp)
+## 8. GET /api/v1/stats — Thống kê mô tả dữ liệu
+
+Thống kê trên toàn bộ dữ liệu đã làm sạch (`market.ohlcv`) của mọi mã có dữ
+liệu ở khung thời gian được chọn. Dùng cho bảng thông số ở trang
+"Dữ liệu & Phân tích" và "Tổng quan".
+
+*   **Query**: `timeframe` = `1d` (mặc định) | `1h`. Sai giá trị → `400`.
+*   **Response**: danh sách `SymbolStats`:
+    `ticker, asset_class, timeframe, bars, first_ts, last_ts, lowest_low,
+    highest_high, mean_close, std_close, first_close, last_close, change_pct,
+    mean_volume, max_volume, return_std_pct`.
+    *   `change_pct` = (giá cuối / giá đầu − 1) × 100.
+    *   `return_std_pct` = độ lệch chuẩn lợi suất giữa hai nến liên tiếp (%),
+        dùng làm thước đo độ biến động.
+
+## 9. GET /api/v1/indicators — Nến kèm chỉ báo kỹ thuật
+
+*   **Query**: `ticker` (bắt buộc), `timeframe` (`1d`|`1h`), `limit` (20–1000,
+    mặc định 250).
+*   **Response**: `{ticker, timeframe, points[]}`; mỗi điểm có
+    `ts, open, high, low, close, volume, sma_20, sma_50, rsi_14, macd,
+    macd_signal, macd_hist` (chỉ báo `null` trong giai đoạn khởi động).
+*   Server nạp thêm 60 nến trước cửa sổ để SMA 50 / RSI / MACD đã ổn định ở nến
+    đầu tiên. RSI và MACD dùng chung công thức `shared/utils/metrics.py` với
+    pipeline huấn luyện. Mọi chỉ báo chỉ nhìn về quá khứ (có test kiểm tra).
+*   **Mã lỗi**: `404` mã không tồn tại hoặc không có dữ liệu khung này.
+
+## 10. GET /api/v1/data-quality — Hồ sơ chất lượng dữ liệu
+
+*   **Query**: `timeframe` (`1d`|`1h`).
+*   **Response**: danh sách `DataQualityReport`: `bars, expected_bars,
+    missing_bars, completeness_pct, zero_volume_bars, invalid_ohlc_bars,
+    return_outliers, volume_outliers, last_pipeline_check`.
+    *   `expected_bars`: cổ phiếu theo lịch thứ 2–6 (chưa trừ ngày lễ), crypto
+        theo lịch liên tục (ngày hoặc giờ).
+    *   Outlier theo quy tắc IQR (k = 1,5) giống `services/ingestion/app/cleaning.py`,
+        nhưng tính trên lợi suất thay vì mức giá để không gắn cờ cả giai đoạn xu hướng.
+    *   `last_pipeline_check`: bản ghi `cleaning_pipeline` mới nhất trong
+        `ops.data_quality_check` (`null` nếu dữ liệu nạp từ snapshot).
+
+## 11. GET /api/v1/jobs — Nhật ký tác vụ thu thập/làm sạch
+
+*   **Query**: `limit` (1–100, mặc định 20).
+*   **Response**: danh sách `JobLogEntry` từ `ops.job_log` (mới nhất trước):
+    `job_type, job_name, status, ticker, timeframe, started_at, finished_at,
+    duration_ms, rows_affected, error_message`.
+*   `status` thuộc enum `ops.job_status`: `pending | running | success | failed | skipped`.
+
+Các endpoint 8–11 yêu cầu `X-API-Key`, trả `503` nếu cơ sở dữ liệu lỗi.
+
+---
+
+## 12. Mã Lỗi Phổ Biến (tổng hợp)
 
 *   `400 Bad Request`: JSON sai định dạng hoặc tham số ngoài khoảng hợp lệ
     (ví dụ `steps > 30`, `timeframe` không hỗ trợ).
-*   `401 Unauthorized`: Không truyền `X-API-Key` hoặc khóa không chính xác.
+*   `401 Unauthorized`: `X-API-Key` sai. (Thiếu hẳn header → FastAPI trả
+    `422` vì header được khai báo bắt buộc.)
 *   `404 Not Found`: Ticker không tồn tại, hoặc artifact được yêu cầu chưa có.
 *   `429 Too Many Requests`: Vượt quá `RATE_LIMIT_PER_MINUTE` (mặc định 60/phút).
 *   `503 Service Unavailable`: Model chưa có trong MLflow Model Registry.

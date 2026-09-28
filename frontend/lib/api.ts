@@ -48,16 +48,106 @@ export interface PredictResponse {
   predictions: PredictionPoint[];
 }
 
+export interface ModelMetrics {
+  mae: number;
+  rmse: number;
+  mape: number;
+  /** Naive baseline (y_hat = current close) on the same test split. */
+  naive_mae: number | null;
+  naive_rmse: number | null;
+  naive_mape: number | null;
+  directional_accuracy: number | null;
+}
+
 export interface ModelInfo {
+  /** Registry name, e.g. "ACB_1d_xgboost" (see registryName). */
   model_name: string;
   version: string;
   status: string;
-  metrics: {
-    mae: number | null;
-    rmse: number | null;
-    mape: number | null;
-  };
+  /** null when the training run did not log MAE/RMSE/MAPE. */
+  metrics: ModelMetrics | null;
   last_updated: string | null;
+}
+
+export interface SymbolStats {
+  ticker: string;
+  asset_class: string;
+  timeframe: string;
+  bars: number;
+  first_ts: string;
+  last_ts: string;
+  lowest_low: number;
+  highest_high: number;
+  mean_close: number;
+  std_close: number | null;
+  first_close: number;
+  last_close: number;
+  change_pct: number | null;
+  mean_volume: number;
+  max_volume: number;
+  return_std_pct: number | null;
+}
+
+export interface IndicatorPoint {
+  ts: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  sma_20: number | null;
+  sma_50: number | null;
+  rsi_14: number | null;
+  macd: number | null;
+  macd_signal: number | null;
+  macd_hist: number | null;
+}
+
+export interface IndicatorResponse {
+  ticker: string;
+  timeframe: string;
+  points: IndicatorPoint[];
+}
+
+export interface PipelineCheck {
+  checked_at: string;
+  passed: boolean;
+  detail: Record<string, number>;
+}
+
+export interface DataQualityReport {
+  ticker: string;
+  asset_class: string;
+  timeframe: string;
+  bars: number;
+  first_ts: string | null;
+  last_ts: string | null;
+  expected_bars: number;
+  missing_bars: number;
+  completeness_pct: number;
+  zero_volume_bars: number;
+  invalid_ohlc_bars: number;
+  return_outliers: number;
+  volume_outliers: number;
+  last_pipeline_check: PipelineCheck | null;
+}
+
+export interface JobLogEntry {
+  job_type: string;
+  job_name: string;
+  status: string; // pending | running | success | failed | skipped
+  ticker: string | null;
+  timeframe: string | null;
+  started_at: string;
+  finished_at: string | null;
+  duration_ms: number | null;
+  rows_affected: number | null;
+  error_message: string | null;
+}
+
+export interface HealthStatus {
+  status: string;
+  service: string;
 }
 
 export interface ExplainFeature {
@@ -146,7 +236,49 @@ export function fetchExplain(ticker: string, timeframe: Timeframe, modelName: Mo
   return request<ExplainResponse>(`/api/v1/explain?${params}`);
 }
 
-/** Derive the ingestion timeframe from an asset class (crypto→1h, stock→1d). */
+/** GET /api/v1/stats — descriptive statistics of every symbol for a timeframe. */
+export function fetchStats(timeframe: Timeframe): Promise<SymbolStats[]> {
+  return request<SymbolStats[]>(`/api/v1/stats?${new URLSearchParams({ timeframe })}`);
+}
+
+/** GET /api/v1/indicators — chronological candles with SMA/RSI/MACD. */
+export function fetchIndicators(ticker: string, timeframe: Timeframe, limit: number): Promise<IndicatorResponse> {
+  const params = new URLSearchParams({ ticker, timeframe, limit: String(limit) });
+  return request<IndicatorResponse>(`/api/v1/indicators?${params}`);
+}
+
+/** GET /api/v1/data-quality — completeness/anomaly profile of every symbol. */
+export function fetchDataQuality(timeframe: Timeframe): Promise<DataQualityReport[]> {
+  return request<DataQualityReport[]>(`/api/v1/data-quality?${new URLSearchParams({ timeframe })}`);
+}
+
+/** GET /api/v1/jobs — most recent ingestion/cleaning jobs (ops.job_log). */
+export function fetchJobs(limit: number = 20): Promise<JobLogEntry[]> {
+  return request<JobLogEntry[]>(`/api/v1/jobs?${new URLSearchParams({ limit: String(limit) })}`);
+}
+
+/** GET /health — liveness of the inference service (no API key needed). */
+export function fetchHealth(): Promise<HealthStatus> {
+  return request<HealthStatus>("/health");
+}
+
+/** Registry name used by every training entrypoint: "<TICKER>_<tf>_<model>". */
+export function registryName(ticker: string, timeframe: Timeframe, model: ModelName): string {
+  return `${ticker.replace("/", "").toUpperCase()}_${timeframe}_${model}`;
+}
+
+/** Default timeframe for an asset class (crypto→1h, stock→1d). */
 export function timeframeForAssetClass(assetClass: string | undefined): Timeframe {
   return assetClass === "crypto" ? "1h" : "1d";
+}
+
+/** Human-readable message for an API failure, with hints for common statuses. */
+export function describeApiError(err: unknown): string {
+  if (err instanceof ApiError) {
+    if (err.status === 401) return "API key không hợp lệ — kiểm tra NEXT_PUBLIC_API_KEY trong .env.local.";
+    if (err.status === 503) return `Dịch vụ phụ thuộc chưa sẵn sàng (503): ${err.message}`;
+    return `${err.message} (HTTP ${err.status})`;
+  }
+  if (err instanceof TypeError) return "Không kết nối được Inference API — dịch vụ đã chạy chưa?";
+  return err instanceof Error ? err.message : "Lỗi không xác định";
 }
