@@ -332,7 +332,17 @@ def test_models_lists_registry_content(
     ]
     _FakeMlflowClient.runs = {
         "run-1": SimpleNamespace(
-            data=SimpleNamespace(metrics={"mae": 0.4, "rmse": 0.6, "mape_pct": 1.2})
+            data=SimpleNamespace(
+                metrics={
+                    "mae": 0.4,
+                    "rmse": 0.6,
+                    "mape_pct": 1.2,
+                    "naive_mae": 0.41,
+                    "naive_rmse": 0.62,
+                    "naive_mape_pct": 1.25,
+                    "directional_accuracy": 0.55,
+                }
+            )
         )
     }
     monkeypatch.setattr(main, "MlflowClient", _FakeMlflowClient)
@@ -344,7 +354,15 @@ def test_models_lists_registry_content(
     assert body[0]["model_name"] == "ACB_1d_xgboost"
     assert body[0]["version"] == "3"
     assert body[0]["status"] == "active"
-    assert body[0]["metrics"] == {"mae": 0.4, "rmse": 0.6, "mape": 1.2}
+    assert body[0]["metrics"] == {
+        "mae": 0.4,
+        "rmse": 0.6,
+        "mape": 1.2,
+        "naive_mae": 0.41,
+        "naive_rmse": 0.62,
+        "naive_mape": 1.25,
+        "directional_accuracy": 0.55,
+    }
 
 
 def test_models_maps_mlflow_outage_to_503(
