@@ -18,7 +18,10 @@ class VNStockAdapter:
             self._vnstock = Vnstock
             logger.info("vnstock library initialized successfully")
         except ImportError:
-            logger.error("vnstock library not installed. Run: pip install vnstock")
+            logger.error(
+                "vnstock library not installed (optional, quarantined on PyPI). "
+                "See services/ingestion/requirements-vnstock.txt."
+            )
             self._vnstock = None
 
     def fetch_historical_ohlcv(

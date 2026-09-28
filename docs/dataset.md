@@ -12,6 +12,27 @@ Thư mục `data/snapshots/` chỉ dùng để lưu snapshot local dạng `CSV.g
 chia sẻ hoặc tái lập thí nghiệm. Các file snapshot thật không được commit vào
 Git.
 
+## Nguồn cổ phiếu VN: `vnstock` là phụ thuộc tùy chọn (từ 2026-09-28)
+
+Tháng 09/2026, PyPI đưa dự án `vnstock` vào trạng thái **quarantined** và gỡ gói
+phụ thuộc `vnai`, nên `pip install vnstock` không còn cài được (CI hỏng ở bước
+cài dependency). Gói này còn tự sinh tệp `AGENTS.md` chứa chỉ dẫn cho AI agent
+vào thư mục chạy (`services/ingestion/AGENTS.md`, đã có trong `.gitignore`).
+
+Quyết định của nhóm:
+
+- `vnstock` được tách khỏi `services/ingestion/requirements.txt` sang
+  `services/ingestion/requirements-vnstock.txt`; CI và image mặc định **không**
+  cài gói này. Build thủ công có thể bật bằng
+  `docker compose build --build-arg INSTALL_VNSTOCK=true ingestion`.
+- Khi thiếu gói, `VNStockAdapter` ghi log lỗi và trả về danh sách rỗng; task
+  `ingest_stocks_task` vẫn chạy, không làm sập worker. Thu thập crypto (Binance
+  qua `ccxt`) không bị ảnh hưởng.
+- Dữ liệu cổ phiếu cho thí nghiệm vẫn lấy từ snapshot đã khóa
+  (`group_dataset_v1`), nên kết quả benchmark không thay đổi.
+- Hướng lâu dài (chưa làm): viết adapter gọi trực tiếp API công khai của
+  sàn/CTCK thay cho `vnstock`.
+
 ## Export Snapshot
 
 Chạy khi Docker/Postgres đang hoạt động:
