@@ -177,6 +177,24 @@ def _load_history(
     return frame
 
 
+def _target_times(
+    last_bar_ts: datetime, timeframe: str, asset_class: str, steps: int
+) -> List[datetime]:
+    """Timestamps of the next `steps` bars after the last observed bar.
+
+    Each model step is "the next bar", so daily stock bars land on the next
+    trading days (Mon–Fri) rather than calendar days; crypto trades 24/7.
+    Vietnamese public holidays are not modelled.
+    """
+    if asset_class == "stock" and timeframe == "1d":
+        start = pd.Timestamp(last_bar_ts)
+        return [
+            (start + pd.offsets.BDay(step)).to_pydatetime()
+            for step in range(1, steps + 1)
+        ]
+    return [last_bar_ts + STEP_DELTAS[timeframe] * step for step in range(1, steps + 1)]
+
+
 def _persist_predictions(
     db: Session,
     loaded: LoadedModel,
@@ -303,15 +321,12 @@ def predict_price(payload: PredictRequest, db: Session = Depends(get_db)):
             detail=f"Not enough usable history for {ticker} ({timeframe}): {exc}",
         ) from exc
 
-    step_delta = STEP_DELTAS[timeframe]
     last_bar_ts = history["ts"].iloc[-1].to_pydatetime()
     prediction_time = now_utc()
+    target_times = _target_times(last_bar_ts, timeframe, asset_class, len(values))
     predictions = [
-        PredictionItem(
-            target_time=last_bar_ts + step_delta * step,
-            predicted_value=value,
-        )
-        for step, value in enumerate(values, start=1)
+        PredictionItem(target_time=target_time, predicted_value=value)
+        for target_time, value in zip(target_times, values)
     ]
 
     # 4. Ghi ml.prediction (best-effort, không ảnh hưởng response)

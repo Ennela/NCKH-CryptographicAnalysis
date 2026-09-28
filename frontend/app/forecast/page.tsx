@@ -215,7 +215,7 @@ function ChartPanel(props: {
         <ForecastLegend />
       </div>
       {forecastError && <div className="rounded border border-down/40 bg-down/10 px-3 py-2 text-sm text-rose-200">{forecastError}</div>}
-      <div className="h-[560px]">
+      <div className="h-[560px] xl:h-[680px]">
         {loading ? (
           <StateBox kind="loading" message={`Đang tải dữ liệu ${ticker}…`} height="h-full" />
         ) : error ? (

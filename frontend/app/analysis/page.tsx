@@ -145,7 +145,7 @@ export default function AnalysisPage() {
             <AnalysisChart points={points} timeframe={timeframe} />
           )}
         </Panel>
-        <IndicatorSidebar points={points} stats={selected} />
+        <IndicatorSidebar points={points} stats={selected} timeframe={timeframe} />
       </div>
 
       <RecentTable points={points} timeframe={timeframe} assetClass={selected?.asset_class ?? "stock"} />
@@ -174,7 +174,7 @@ function StatsTable({
     <Panel
       title={`Bảng thông số dữ liệu (khung ${timeframeLabel(timeframe)})`}
       subtitle="Thống kê mô tả trên toàn bộ dữ liệu đã làm sạch trong market.ohlcv · bấm một dòng để xem biểu đồ"
-      bodyClassName="overflow-x-auto"
+      bodyClassName="max-h-[440px] overflow-auto"
     >
       {loading ? (
         <StateBox kind="loading" message="Đang tính thống kê…" />
@@ -184,7 +184,7 @@ function StatsTable({
         <StateBox kind="empty" message={`Chưa có dữ liệu khung ${timeframeLabel(timeframe)}`} />
       ) : (
         <table className="data-table whitespace-nowrap">
-          <thead>
+          <thead className="sticky top-0 z-10">
             <tr>
               <th>Mã</th>
               <th>Loại</th>
@@ -230,7 +230,7 @@ function StatsTable({
   );
 }
 
-function IndicatorSidebar({ points, stats }: { points: IndicatorPoint[]; stats?: SymbolStats }) {
+function IndicatorSidebar({ points, stats, timeframe }: { points: IndicatorPoint[]; stats?: SymbolStats; timeframe: Timeframe }) {
   const last = points[points.length - 1];
   const assetClass = stats?.asset_class ?? "stock";
   const insights = readIndicators(points);
@@ -240,7 +240,7 @@ function IndicatorSidebar({ points, stats }: { points: IndicatorPoint[]; stats?:
 
   return (
     <div className="flex flex-col gap-6">
-      <Panel title="Chỉ số tại nến gần nhất" subtitle={last ? formatDate(last.ts, true) : undefined} bodyClassName="flex flex-col gap-2.5 p-4">
+      <Panel title="Chỉ số tại nến gần nhất" subtitle={last ? formatDate(last.ts, timeframe === "1h") : undefined} bodyClassName="flex flex-col gap-2.5 p-4">
         <MetricRow label="Giá đóng cửa" value={formatPrice(last?.close, assetClass)} />
         <MetricRow label="SMA 20" value={formatPrice(last?.sma_20, assetClass)} />
         <MetricRow label="SMA 50" value={formatPrice(last?.sma_50, assetClass)} />
