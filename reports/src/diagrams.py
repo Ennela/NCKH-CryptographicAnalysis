@@ -430,13 +430,21 @@ def d1_architecture():
 
 
 # ── D2: data & processing pipeline ───────────────────────────────────
-def d2_pipeline():
+def d2_pipeline(
+    heading: str
+    | None = "Hình 3.2 — Đường ống dữ liệu từ nguồn đến màn hình người dùng",
+    ohlcv_rows: str = "192.740",
+    name: str = "d2_duong_ong.png",
+):
+    """Pipeline diagram. The V2 report uses the defaults; Chương X passes the
+    live row count and no in-image heading (the Word caption carries it)."""
     fig, ax = canvas(15, 7.2, (0, 16.2), (0, 7.4))
-    title(
-        ax,
-        "Hình 3.2 — Đường ống dữ liệu từ nguồn đến màn hình người dùng",
-        "Các khối viền xanh lá là ranh giới khoa học: dữ liệu bị khóa trước khi mô hình nhìn thấy, và mọi kết quả phải đi qua evaluator",
-    )
+    if heading:
+        title(
+            ax,
+            heading,
+            "Các khối viền xanh lá là ranh giới khoa học: dữ liệu bị khóa trước khi mô hình nhìn thấy, và mọi kết quả phải đi qua evaluator",
+        )
 
     y1, y2, h, w = 5.05, 2.75, 1.15, 2.85
     xs = [0.25, 3.45, 6.65, 9.85, 13.05]
@@ -448,7 +456,7 @@ def d2_pipeline():
             BLUE,
         ),
         ("3. Làm sạch & kiểm định", "missing / outlier\nchuẩn UTC", ORANGE),
-        ("4. market.ohlcv", "hypertable TimescaleDB\n192.740 dòng", BLUE),
+        ("4. market.ohlcv", f"hypertable TimescaleDB\n{ohlcv_rows} dòng", BLUE),
         ("5. Snapshot khóa", "group_dataset_v1\nfingerprint SHA-256", GREEN),
     ]
     bottom = [
@@ -495,7 +503,7 @@ def d2_pipeline():
         rad=0.12,
         lab_off=(-0.75, 0.05),
     )
-    save(fig, "d2_duong_ong.png")
+    save(fig, name)
 
 
 # ── D3: ERD ──────────────────────────────────────────────────────────

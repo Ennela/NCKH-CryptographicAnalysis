@@ -83,3 +83,6 @@ CLAUDE.md
 # OS
 .DS_Store
 Thumbs.db
+
+# Generated report data (rebuilt by reports/src/*_data.py)
+reports/src/chx.json
