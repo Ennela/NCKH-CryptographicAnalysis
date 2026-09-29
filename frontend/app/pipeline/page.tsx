@@ -9,6 +9,7 @@ import {
   fetchJobs,
   type DataQualityReport,
   type HealthStatus,
+  type PipelineCheck,
   type JobLogEntry,
   type Timeframe,
 } from "@/lib/api";
@@ -247,13 +248,7 @@ function QualityPanel() {
                 <td className="text-right font-mono">{formatNum(r.volume_outliers, 0)}</td>
                 <td className="text-xs">
                   {r.last_pipeline_check ? (
-                    <span className="flex items-center gap-2">
-                      {r.last_pipeline_check.passed ? <Badge tone="green">Đạt</Badge> : <Badge tone="amber">Có outlier</Badge>}
-                      <span className="text-slate-400">
-                        {formatDate(r.last_pipeline_check.checked_at, true)} · trùng {r.last_pipeline_check.detail.duplicates_removed ?? 0} · điền{" "}
-                        {r.last_pipeline_check.detail.missing_filled ?? 0}
-                      </span>
-                    </span>
+                    <PipelineCheckCell check={r.last_pipeline_check} />
                   ) : (
                     <span className="text-slate-500" title="Dữ liệu nạp bằng import snapshot / backfill, chưa qua clean_and_store_task">
                       Chưa chạy pipeline làm sạch
@@ -269,6 +264,21 @@ function QualityPanel() {
         Nến kỳ vọng tính theo lịch thứ 2–6 cho cổ phiếu (chưa trừ ngày lễ Việt Nam, nên ngày lễ hiện là “thiếu”) và theo lịch liên tục cho crypto.
       </p>
     </Panel>
+  );
+}
+
+/** Latest cleaning report: counts per step, and whether it was an audit replay. */
+function PipelineCheckCell({ check }: { check: PipelineCheck }) {
+  const d = check.detail;
+  const audit = d.mode === "audit";
+  return (
+    <span className="flex items-center gap-2" title={`${formatDate(check.checked_at, true)} · ${d.input_rows ?? 0} nến thô → ${d.output_rows ?? 0} nến sạch`}>
+      {check.passed ? <Badge tone="green">Đạt</Badge> : <Badge tone="amber">Có outlier</Badge>}
+      {audit && <Badge tone="slate">Đo lại · không ghi</Badge>}
+      <span className="text-slate-300">
+        trùng {d.duplicates_removed ?? 0} · điền {d.missing_filled ?? 0} · outlier {d.outliers_flagged ?? 0}
+      </span>
+    </span>
   );
 }
 

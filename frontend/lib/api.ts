@@ -112,7 +112,16 @@ export interface IndicatorResponse {
 export interface PipelineCheck {
   checked_at: string;
   passed: boolean;
-  detail: Record<string, number>;
+  /** CleaningReport counts; mode = "audit" when replayed without writing bars. */
+  detail: {
+    input_rows?: number;
+    output_rows?: number;
+    duplicates_removed?: number;
+    missing_filled?: number;
+    outliers_flagged?: number;
+    mode?: string;
+    persisted?: boolean;
+  };
 }
 
 export interface DataQualityReport {
