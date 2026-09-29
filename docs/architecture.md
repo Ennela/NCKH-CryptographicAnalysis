@@ -143,7 +143,7 @@ Lưu trữ lịch sử dự đoán của mô hình để đánh giá hiệu năn
 ## 4. Cấu Hình Lịch Chạy Định Kỳ (Celery Beat Scheduler)
 
 Quy trình thu thập dữ liệu (`ingest`) và làm sạch dữ liệu (`clean`) được cấu hình tự động thông qua **Celery Beat**:
-1.  **Lịch chạy Ingestion (Thu thập)**: Được cấu hình cố định trong [celery_app.py](file:///d:/sources/repos/NCKH/services/ingestion/celery_app.py).
+1.  **Lịch chạy Ingestion (Thu thập)**: Giờ chạy cấu hình trong [celery_app.py](file:///d:/sources/repos/NCKH/services/ingestion/celery_app.py) (crypto 1h: phút 5 mỗi giờ; crypto 1d: 00:10 UTC; cổ phiếu: thứ 2–6 10:00 UTC). Danh sách mã đọc từ `INGEST_CRYPTO_SYMBOLS` / `INGEST_STOCK_SYMBOLS` (mặc định đủ 25 mã của `configs/group_dataset.json`).
 2.  **Lịch chạy Cleaning (Làm sạch)**: Được cấu hình **động** dựa trên trạng thái hoạt động của symbols trong database thông qua [scheduler.py](file:///d:/sources/repos/NCKH/services/ingestion/app/scheduler.py):
     *   Hệ thống tự động quét danh sách symbols có `status = 'active'` từ bảng `market.symbol`.
     *   **Crypto symbols**: Chạy làm sạch hàng giờ. Phút chạy nến được **stagger** (phân bổ cách nhau `CLEAN_STAGGER_INTERVAL_MINS` phút) để tránh nghẽn database do các worker cùng ghi dữ liệu một lúc.
