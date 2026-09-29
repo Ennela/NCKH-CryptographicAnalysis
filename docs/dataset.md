@@ -237,3 +237,34 @@ snapshot `ohlcv_full_current` chính thức. Từ khi contract được khóa (c
 fingerprint của snapshot local với giá trị trên và fail sớm nếu lệch. KHÔNG tự
 sửa giá trị này; nếu snapshot chính thức đổi, nhóm trưởng là người cập nhật
 contract kèm thông báo cho cả nhóm.
+
+## Đo lại pipeline làm sạch trên toàn bộ dữ liệu thô (audit)
+
+`run_clean_and_store` chỉ xử lý nến thô mới hơn nến sạch cuối cùng, nên dữ liệu
+nạp bằng snapshot/backfill chưa từng đi qua pipeline. `scripts/audit_cleaning.py`
+chạy lại đúng 4 bước của `clean_ohlcv` trên toàn bộ `market.ohlcv_raw` và ghi
+báo cáo vào `ops.data_quality_check` (`check_name = cleaning_pipeline`,
+`detail.mode = "audit"`), **không ghi** `market.ohlcv` (ghi thật sẽ forward-fill
+thêm nến vào cửa sổ snapshot đã khóa).
+
+```bash
+docker compose run --rm -w /app ingestion python -m scripts.audit_cleaning
+```
+
+Kết quả chạy 29/09/2026 (25 mã, `check_group_dataset.py` vẫn PASS sau khi chạy):
+
+| Nhóm | Nến thô | Trùng | Phiên được điền | Outlier (IQR trên mức giá) |
+|---|---|---|---|---|
+| Cổ phiếu 1d (15 mã) | 530/mã (FPT 537) | 0 | 20/mã (FPT 23) | 26 – 68/mã |
+| Crypto 1d (10 mã) | 821/mã | 0 | 0 (crypto không điền) | 39 – 84/mã |
+| Crypto 1h (10 mã) | 19.697/mã | 0 | 0 | 1.389 – 2.327/mã (7–12%) |
+
+- 0 bản ghi trùng: khóa chính `(symbol_id, timeframe, ts)` + upsert đã chặn
+  trùng ngay khi ghi.
+- Cổ phiếu thiếu 24 phiên/mã so với lịch thứ 2–6; 20 phiên được điền, 4 phiên
+  nằm trong khoảng nghỉ dài hơn `CLEANING_FFILL_LIMIT = 3` (ví dụ Tết) nên bị bỏ.
+- **Hạn chế:** `detect_outliers` áp IQR lên *mức giá* close/volume của cả chuỗi.
+  Với chuỗi có xu hướng mạnh, cách này gắn cờ cả những giai đoạn giá cao/thấp
+  bình thường (7–12% nến crypto 1h). Trang "Thu thập & Làm sạch" (`/api/v1/data-quality`)
+  vì vậy đếm outlier trên *lợi suất* giữa hai nến liên tiếp. Hướng sửa pipeline:
+  chuyển IQR sang lợi suất hoặc dùng cửa sổ trượt.

@@ -18,7 +18,7 @@ from decimal import Decimal
 import pytest
 from sqlalchemy import text
 
-from services.ingestion.app.pipeline import run_clean_and_store
+from services.ingestion.app.pipeline import audit_cleaning, run_clean_and_store
 from shared.db.repositories.market_repo import (
     clear_caches,
     ensure_exchange,
@@ -172,3 +172,45 @@ class TestPipelineCleanAndStore:
             run_clean_and_store(db, 99999, "1d")
 
         assert "Không tìm thấy symbol" in str(excinfo.value)
+
+
+class TestCleaningAudit:
+    """audit_cleaning: đo trên toàn bộ dữ liệu thô, không ghi market.ohlcv."""
+
+    def test_audit_reports_without_writing_bars(self, db) -> None:
+        code = f"EX_{uuid.uuid4().hex[:6]}"
+        eid = ensure_exchange(db, code, "Test Exchange", "stock", "Asia/Ho_Chi_Minh")
+        sid = ensure_symbol(db, eid, f"SYM_{uuid.uuid4().hex[:6]}", "stock", "vnstock")
+        db.flush()
+        # Mon 15 and Wed 17 Jan 2024: Tuesday is missing and would be filled.
+        _insert_raw_candle(db, sid, datetime(2024, 1, 15, tzinfo=timezone.utc))
+        _insert_raw_candle(db, sid, datetime(2024, 1, 17, tzinfo=timezone.utc))
+        db.flush()
+
+        detail = audit_cleaning(db, sid, "1d")
+
+        assert detail["mode"] == "audit"
+        assert detail["persisted"] is False
+        assert detail["input_rows"] == 2
+        assert detail["missing_filled"] == 1
+        bars = db.execute(
+            text("SELECT COUNT(*) FROM market.ohlcv WHERE symbol_id = :sid"),
+            {"sid": sid},
+        ).scalar()
+        assert bars == 0
+        check = db.execute(
+            text(
+                "SELECT check_name, detail FROM ops.data_quality_check "
+                "WHERE symbol_id = :sid"
+            ),
+            {"sid": sid},
+        ).fetchone()
+        assert check[0] == "cleaning_pipeline"
+        assert check[1]["mode"] == "audit"
+
+    def test_audit_without_raw_data(self, db) -> None:
+        code = f"EX_{uuid.uuid4().hex[:6]}"
+        eid = ensure_exchange(db, code, "Test Exchange", "crypto", "UTC")
+        sid = ensure_symbol(db, eid, f"SYM_{uuid.uuid4().hex[:6]}", "crypto", "binance")
+        db.flush()
+        assert audit_cleaning(db, sid, "1h") == {"status": "no_raw_data"}
