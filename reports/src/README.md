@@ -14,6 +14,8 @@ soạn tay. Khi thiết kế hệ thống hoặc kết quả thí nghiệm thay 
 | `make_xlsx.py` | Bảng kết quả Excel 4 sheet (`reports/Ket_qua_benchmark_*.xlsx`) |
 | `report_data.py` + `report_part2.py` | Nội dung báo cáo → `report.json` |
 | `build_docx.js` | `report.json` + hình → tệp `.docx` |
+| `chx_data.py` + `build_chx.js` | Chương X (thu thập – làm sạch – chuẩn hóa – thống kê – dashboard) → `reports/Chuong_X_Du_lieu.docx`; số liệu đọc trực tiếp từ API đang chạy |
+| `agile_metrics.py` | Số liệu sprint từ Git/GitHub → `reports/agile_metrics.csv` |
 | `all_results.csv` | Chỉ số của 36 MLflow run, tổng hợp từ `artifacts/metrics/` (thư mục này nằm trong `.gitignore`) |
 
 ## Yêu cầu
@@ -65,3 +67,14 @@ do bốn entrypoint huấn luyện sinh ra. Sau khi chạy thêm thí nghiệm, 
   `TablesOfContents(1).Update()`) để hiện số trang.
 - Phông chữ trong sơ đồ được phóng theo hệ số `FS` ở đầu `diagrams.py`, vì hình bị thu nhỏ
   khi đưa vào khổ A4.
+
+## Chương X (dữ liệu) — sinh lại
+
+Cần hệ thống đang chạy (Inference API ở `http://localhost:8010`, đổi bằng biến `API`):
+
+```bash
+python reports/src/chx_data.py      # -> reports/src/chx.json + reports/figures/chx_duong_ong.png
+node reports/src/build_chx.js       # -> reports/Chuong_X_Du_lieu.docx
+```
+
+Số chương, bảng, hình ghi dạng “X”, thay bằng số chương thật khi ghép vào báo cáo chung.

@@ -54,6 +54,10 @@ def element(page: Page, locator, name: str) -> None:
     for the element to be "stable", which ECharts canvases never report.
     """
     wait_until_loaded(page)
+    # Grid rows stretch a short panel to its neighbour's height, leaving an
+    # empty lower half in the shot; shrink it to its own content first.
+    locator.evaluate("el => { el.style.alignSelf = 'start'; }")
+    page.wait_for_timeout(300)
     box = locator.evaluate(
         "el => { const r = el.getBoundingClientRect();"
         " return {x: r.left + window.scrollX, y: r.top + window.scrollY,"
