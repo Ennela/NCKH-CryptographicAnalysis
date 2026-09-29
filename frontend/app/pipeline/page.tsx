@@ -262,6 +262,7 @@ function QualityPanel() {
       )}
       <p className="px-5 py-3 text-xs text-slate-500">
         Nến kỳ vọng tính theo lịch thứ 2–6 cho cổ phiếu (chưa trừ ngày lễ Việt Nam, nên ngày lễ hiện là “thiếu”) và theo lịch liên tục cho crypto.
+        “Đo lại”: chạy lại 4 bước làm sạch trên toàn bộ dữ liệu thô để lấy số liệu (scripts/audit_cleaning.py), không ghi đè dữ liệu đã khóa cho thí nghiệm; outlier ở cột này tính trên mức giá như pipeline gốc.
       </p>
     </Panel>
   );
@@ -272,9 +273,14 @@ function PipelineCheckCell({ check }: { check: PipelineCheck }) {
   const d = check.detail;
   const audit = d.mode === "audit";
   return (
-    <span className="flex items-center gap-2" title={`${formatDate(check.checked_at, true)} · ${d.input_rows ?? 0} nến thô → ${d.output_rows ?? 0} nến sạch`}>
-      {check.passed ? <Badge tone="green">Đạt</Badge> : <Badge tone="amber">Có outlier</Badge>}
-      {audit && <Badge tone="slate">Đo lại · không ghi</Badge>}
+    <span
+      className="flex flex-col gap-1"
+      title={`${formatDate(check.checked_at, true)} · ${d.input_rows ?? 0} nến thô → ${d.output_rows ?? 0} nến sạch${audit ? " · đo lại, không ghi market.ohlcv" : ""}`}
+    >
+      <span className="flex items-center gap-1.5">
+        {check.passed ? <Badge tone="green">Đạt</Badge> : <Badge tone="amber">Có outlier</Badge>}
+        {audit && <Badge tone="slate">Đo lại</Badge>}
+      </span>
       <span className="text-slate-300">
         trùng {d.duplicates_removed ?? 0} · điền {d.missing_filled ?? 0} · outlier {d.outliers_flagged ?? 0}
       </span>
