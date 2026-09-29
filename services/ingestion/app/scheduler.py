@@ -38,6 +38,38 @@ class SchedulerSettings(BaseSettings):
     # Stagger interval in minutes
     CLEAN_STAGGER_INTERVAL_MINS: int = 2
 
+    # Symbols pulled by the periodic ingestion tasks in celery_app.py (JSON
+    # lists in .env). Defaults = the 25 assets of configs/group_dataset.json.
+    INGEST_CRYPTO_SYMBOLS: list[str] = [
+        "ADA/USDT",
+        "AVAX/USDT",
+        "BNB/USDT",
+        "BTC/USDT",
+        "DOGE/USDT",
+        "DOT/USDT",
+        "ETH/USDT",
+        "LINK/USDT",
+        "SOL/USDT",
+        "XRP/USDT",
+    ]
+    INGEST_STOCK_SYMBOLS: list[str] = [
+        "ACB",
+        "FPT",
+        "GAS",
+        "HPG",
+        "MBB",
+        "MSN",
+        "MWG",
+        "PLX",
+        "SAB",
+        "SSI",
+        "TCB",
+        "VCB",
+        "VHM",
+        "VIC",
+        "VNM",
+    ]
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

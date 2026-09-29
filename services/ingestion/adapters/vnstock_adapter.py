@@ -24,6 +24,11 @@ class VNStockAdapter:
             )
             self._vnstock = None
 
+    @property
+    def available(self) -> bool:
+        """True when the optional vnstock package could be imported."""
+        return self._vnstock is not None
+
     def fetch_historical_ohlcv(
         self, symbol: str, start_date: date, end_date: date, resolution: str = "1d"
     ) -> List[OHLCVCreate]:

@@ -188,6 +188,19 @@ def ingest_stocks_task(symbols: List[str], resolution: str = "1d") -> int:
             )
             db.commit()
 
+            if not adapter.available:
+                # Record the real outcome instead of "success, 0 rows".
+                update_job(
+                    db,
+                    job_id,
+                    "skipped",
+                    rows_affected=0,
+                    error_message="vnstock not installed (optional dependency, "
+                    "quarantined on PyPI) — see docs/dataset.md",
+                )
+                db.commit()
+                continue
+
             try:
                 candles = adapter.fetch_historical_ohlcv(
                     symbol=symbol,

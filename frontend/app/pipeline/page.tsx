@@ -22,15 +22,15 @@ const SOURCES = [
     market: "Cổ phiếu Việt Nam (HOSE)",
     timeframes: "1 ngày",
     schedule: "Thứ 2–6, 10:00 UTC (17:00 giờ VN), lấy 7 ngày gần nhất",
-    symbols: "FPT, VCB, MSN",
-    note: "Phụ thuộc tùy chọn: PyPI cách ly gói vnstock từ 09/2026",
+    symbols: "15 cổ phiếu (INGEST_STOCK_SYMBOLS)",
+    note: "Phụ thuộc tùy chọn: PyPI cách ly gói vnstock từ 09/2026 — khi thiếu, job ghi trạng thái skipped",
   },
   {
     source: "Binance qua thư viện ccxt",
     market: "Tiền mã hóa (cặp USDT)",
     timeframes: "1 giờ, 1 ngày",
     schedule: "1h: phút thứ 5 mỗi giờ · 1d: 00:10 UTC hằng ngày",
-    symbols: "BTC/USDT, ETH/USDT",
+    symbols: "10 cặp crypto (INGEST_CRYPTO_SYMBOLS)",
     note: "API công khai, có giới hạn tần suất (enableRateLimit)",
   },
   {

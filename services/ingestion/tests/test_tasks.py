@@ -24,7 +24,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
-from services.ingestion.tasks import clean_and_store_task
+from services.ingestion.tasks import clean_and_store_task, ingest_stocks_task
 from shared.db.repositories.market_repo import (
     clear_caches,
     ensure_exchange,
@@ -168,3 +168,29 @@ class TestCleanAndStoreTask:
 
         assert "Retry triggered successfully" in str(excinfo.value)
         mock_retry.assert_called_once()
+
+
+class TestIngestStocksTask:
+    """ingest_stocks_task khi thiếu gói tùy chọn vnstock."""
+
+    @patch("services.ingestion.tasks.VNStockAdapter")
+    def test_missing_vnstock_marks_job_skipped(self, mock_adapter_cls, db) -> None:
+        """Không có vnstock → job ghi 'skipped' kèm lý do, không phải 'success'."""
+        mock_adapter_cls.return_value.available = False
+        ticker = f"T{uuid.uuid4().hex[:6].upper()}"
+
+        assert ingest_stocks_task([ticker], "1d") == 0
+
+        job = db.execute(
+            text(
+                "SELECT j.status, j.rows_affected, j.error_message "
+                "FROM ops.job_log j JOIN market.symbol s ON s.id = j.symbol_id "
+                "WHERE s.ticker = :ticker"
+            ),
+            {"ticker": ticker},
+        ).fetchone()
+        assert job is not None
+        assert job[0] == "skipped"
+        assert job[1] == 0
+        assert "vnstock" in job[2]
+        mock_adapter_cls.return_value.fetch_historical_ohlcv.assert_not_called()
