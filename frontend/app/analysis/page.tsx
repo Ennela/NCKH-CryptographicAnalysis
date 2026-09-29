@@ -173,7 +173,7 @@ function StatsTable({
   return (
     <Panel
       title={`Bảng thông số dữ liệu (khung ${timeframeLabel(timeframe)})`}
-      subtitle="Thống kê mô tả trên toàn bộ dữ liệu đã làm sạch trong market.ohlcv · bấm một dòng để xem biểu đồ"
+      subtitle="Thống kê mô tả trên toàn bộ dữ liệu đã làm sạch trong market.ohlcv; RSI/MACD tại nến gần nhất · bấm một dòng để xem biểu đồ"
       bodyClassName="max-h-[440px] overflow-auto"
     >
       {loading ? (
@@ -198,6 +198,8 @@ function StatsTable({
               <th className="text-right">KL trung bình</th>
               <th className="text-right">KL lớn nhất</th>
               <th className="text-right" title="Độ lệch chuẩn của lợi suất giữa hai nến liên tiếp">Độ biến động</th>
+              <th className="text-right" title="RSI 14 tại nến gần nhất: ≥ 70 quá mua, ≤ 30 quá bán">RSI 14</th>
+              <th className="text-right" title="MACD (12, 26) và đường Signal (9) tại nến gần nhất">MACD / Signal</th>
             </tr>
           </thead>
           <tbody>
@@ -221,6 +223,12 @@ function StatsTable({
                 <td className="text-right font-mono">{formatVolume(s.mean_volume)}</td>
                 <td className="text-right font-mono">{formatVolume(s.max_volume)}</td>
                 <td className="text-right font-mono">{s.return_std_pct === null ? "—" : `${formatNum(s.return_std_pct)}%`}</td>
+                <td className={`text-right font-mono ${TONE_CLASS[rsiZone(s.rsi_14).tone]}`} title={rsiZone(s.rsi_14).label}>
+                  {formatNum(s.rsi_14, 1)}
+                </td>
+                <td className={`text-right font-mono ${s.macd === null || s.macd_signal === null ? "" : s.macd >= s.macd_signal ? "text-up" : "text-down"}`}>
+                  {formatNum(s.macd, 3)} / {formatNum(s.macd_signal, 3)}
+                </td>
               </tr>
             ))}
           </tbody>

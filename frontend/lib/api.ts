@@ -86,6 +86,10 @@ export interface SymbolStats {
   mean_volume: number;
   max_volume: number;
   return_std_pct: number | null;
+  /** Indicators on the newest bar (same values as the analysis chart). */
+  rsi_14: number | null;
+  macd: number | null;
+  macd_signal: number | null;
 }
 
 export interface IndicatorPoint {

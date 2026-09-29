@@ -592,7 +592,8 @@ STATS_SQL = text(
     "             PARTITION BY o.symbol_id ORDER BY o.ts), 0) - 1 AS ret"
     "  FROM market.ohlcv o WHERE o.timeframe = :timeframe"
     ") "
-    "SELECT s.ticker, s.asset_class::text AS asset_class, COUNT(*) AS bars,"
+    "SELECT s.id AS symbol_id, s.ticker, s.asset_class::text AS asset_class,"
+    "       COUNT(*) AS bars,"
     "       MIN(b.ts) AS first_ts, MAX(b.ts) AS last_ts,"
     "       MIN(b.low) AS lowest_low, MAX(b.high) AS highest_high,"
     "       AVG(b.close) AS mean_close, STDDEV_SAMP(b.close) AS std_close,"
@@ -602,9 +603,26 @@ STATS_SQL = text(
     "       STDDEV_SAMP(b.ret) AS return_std "
     "FROM base b JOIN market.symbol s ON s.id = b.symbol_id "
     "WHERE s.status = 'active' "
-    "GROUP BY s.ticker, s.asset_class "
+    "GROUP BY s.id, s.ticker, s.asset_class "
     "ORDER BY s.asset_class, s.ticker"
 )
+
+
+# Bars used for the latest RSI/MACD in /stats — the same history the analysis
+# chart loads by default (250 shown + warm-up), so both show identical values.
+STATS_INDICATOR_BARS = 250 + INDICATOR_WARMUP_BARS
+
+
+def _latest_indicators(db: Session, symbol_id: int, timeframe: str) -> dict:
+    """RSI 14 / MACD / signal on the newest bar (None when history is short)."""
+    history = _load_history(db, symbol_id, timeframe, STATS_INDICATOR_BARS)
+    if history.empty:
+        return {"rsi_14": None, "macd": None, "macd_signal": None}
+    last = compute_indicators(history).iloc[-1]
+    return {
+        key: None if pd.isna(last[key]) else float(last[key])
+        for key in ("rsi_14", "macd", "macd_signal")
+    }
 
 
 def _validate_timeframe(timeframe: str) -> str:
@@ -646,10 +664,18 @@ def get_symbol_stats(
     """
     Thống kê mô tả dữ liệu đã làm sạch (market.ohlcv) cho mọi mã có dữ liệu:
     số nến, khoảng thời gian, giá cao/thấp nhất, giá trung bình, khối lượng,
-    % thay đổi và độ lệch chuẩn lợi suất theo nến.
+    % thay đổi, độ lệch chuẩn lợi suất theo nến và RSI/MACD tại nến gần nhất.
     """
     timeframe = _validate_timeframe(timeframe)
     rows = _fetch_rows(db, STATS_SQL, {"timeframe": timeframe})
+    try:
+        latest = {
+            row.ticker: _latest_indicators(db, int(row.symbol_id), timeframe)
+            for row in rows
+        }
+    except SQLAlchemyError as exc:
+        logger.error("Latest-indicator query failed: %s", exc)
+        raise HTTPException(status_code=503, detail="Database unavailable.") from exc
     results: List[SymbolStats] = []
     for row in rows:
         first_close, last_close = float(row.first_close), float(row.last_close)
@@ -674,6 +700,7 @@ def get_symbol_stats(
                 mean_volume=float(row.mean_volume),
                 max_volume=float(row.max_volume),
                 return_std_pct=None if return_std is None else return_std * 100.0,
+                **latest[row.ticker],
             )
         )
     return results
