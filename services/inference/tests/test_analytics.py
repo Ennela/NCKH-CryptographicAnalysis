@@ -163,6 +163,7 @@ class _AnalyticsSession:
 
 def _stats_row() -> _Row:
     return _Row(
+        symbol_id=1,
         ticker="ACB",
         asset_class="stock",
         bars=500,
@@ -210,6 +211,11 @@ def test_stats_endpoint_derives_change_and_volatility(client: TestClient) -> Non
     assert row["ticker"] == "ACB"
     assert row["change_pct"] == pytest.approx(25.0)
     assert row["return_std_pct"] == pytest.approx(1.5)
+    # Latest RSI/MACD equal the analysis chart's values on the same history.
+    expected = compute_indicators(_frame(200)).iloc[-1]
+    assert row["rsi_14"] == pytest.approx(expected["rsi_14"])
+    assert row["macd"] == pytest.approx(expected["macd"])
+    assert row["macd_signal"] == pytest.approx(expected["macd_signal"])
 
 
 def test_indicators_endpoint_returns_warm_window(client: TestClient) -> None:

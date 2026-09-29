@@ -34,6 +34,11 @@ class SymbolStats(BaseModel):
     return_std_pct: Optional[float] = Field(
         None, description="Độ lệch chuẩn lợi suất theo nến (%), đo độ biến động"
     )
+    rsi_14: Optional[float] = Field(None, description="RSI 14 tại nến gần nhất")
+    macd: Optional[float] = Field(None, description="MACD (12, 26) tại nến gần nhất")
+    macd_signal: Optional[float] = Field(
+        None, description="Đường tín hiệu MACD (9) tại nến gần nhất"
+    )
 
 
 class IndicatorPoint(BaseModel):

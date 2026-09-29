@@ -305,10 +305,13 @@ liệu ở khung thời gian được chọn. Dùng cho bảng thông số ở t
 *   **Response**: danh sách `SymbolStats`:
     `ticker, asset_class, timeframe, bars, first_ts, last_ts, lowest_low,
     highest_high, mean_close, std_close, first_close, last_close, change_pct,
-    mean_volume, max_volume, return_std_pct`.
+    mean_volume, max_volume, return_std_pct, rsi_14, macd, macd_signal`.
     *   `change_pct` = (giá cuối / giá đầu − 1) × 100.
     *   `return_std_pct` = độ lệch chuẩn lợi suất giữa hai nến liên tiếp (%),
         dùng làm thước đo độ biến động.
+    *   `rsi_14`, `macd`, `macd_signal`: chỉ báo tại nến gần nhất, tính trên
+        cùng lượng lịch sử (310 nến) như biểu đồ `/indicators` mặc định nên hai
+        nơi hiển thị cùng giá trị.
 
 ## 9. GET /api/v1/indicators — Nến kèm chỉ báo kỹ thuật
 
