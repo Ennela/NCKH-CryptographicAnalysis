@@ -237,14 +237,13 @@ function CoefficientTable({ data }: { data: ExplainResponse }) {
   );
 }
 
-/** For ARIMA(1,1,1): when ar.L1 ≈ −ma.L1 the two terms cancel and the model behaves like a random walk. */
+/** ARIMA(1,1,1): when ar.L1 ≈ −ma.L1 the two terms nearly cancel and the model behaves like a random walk. */
 function arimaCancellationNote(data: ExplainResponse): string | null {
   const coef = (name: string) => data.features.find((f) => f.feature === name)?.coefficient;
   const ar = coef("ar.L1");
   const ma = coef("ma.L1");
   if (ar === null || ar === undefined || ma === null || ma === undefined) return null;
-  if (Math.abs(ar + ma) >= 0.1) return null;
-  return `ar.L1 + ma.L1 = ${formatNum(ar + ma, 3)} ≈ 0: hai hệ số gần triệt tiêu nhau nên dự báo xấp xỉ giá đóng cửa gần nhất, giải thích vì sao ARIMA bám sát baseline Naive.`;
+  return `ar.L1 + ma.L1 = ${formatNum(ar + ma, 3)}. Tổng càng gần 0 thì hai thành phần càng triệt tiêu nhau và ARIMA(1,1,1) càng gần bước ngẫu nhiên (dự báo ≈ giá đóng cửa gần nhất), một lý do khiến ARIMA bám sát baseline Naive.`;
 }
 
 function SummaryPanel({ data, unit }: { data: ExplainResponse | null; unit: string }) {
@@ -254,7 +253,7 @@ function SummaryPanel({ data, unit }: { data: ExplainResponse | null; unit: stri
       <Panel title="Tóm tắt mô hình" bodyClassName="flex flex-col gap-2.5 p-4">
         <MetricRow label="Bậc (p, d, q)" value={data.order ? `(${data.order.join(", ")})` : "—"} />
         <MetricRow label="Số quan sát lịch sử" value={data.n_observations?.toLocaleString("vi-VN") ?? "—"} />
-        {note && <p className="text-xs leading-relaxed text-amber-300">{note}</p>}
+        {note && <p className="text-xs leading-relaxed text-slate-300">{note}</p>}
         <p className="text-[11px] text-slate-500">Artifact tạo lúc {formatDate(data.generated_at, true)}</p>
       </Panel>
     );
