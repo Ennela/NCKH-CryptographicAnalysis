@@ -454,6 +454,95 @@ def test_explain_serves_shap_artifact(
     assert body["features"][0]["mean_abs_shap"] == pytest.approx(0.31)
 
 
+def _serve_artifact(
+    monkeypatch: pytest.MonkeyPatch, tmp_path, payload: dict[str, Any]
+) -> None:
+    artifact = tmp_path / "feature_importance.json"
+    artifact.write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setattr(main.model_loader, "latest_version", lambda name: (1, "run-1"))
+    monkeypatch.setattr(
+        main.mlflow.artifacts,
+        "download_artifacts",
+        lambda run_id, artifact_path: str(artifact),
+    )
+
+
+def test_explain_serves_gru_permutation_artifact(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    _serve_artifact(
+        monkeypatch,
+        tmp_path,
+        {
+            "method": "permutation_importance",
+            "metric": "rmse",
+            "baseline_rmse": 0.39,
+            "n_repeats": 5,
+            "n_samples": 70,
+            "features": [
+                {"feature": "close", "importance": 1.2, "importance_std": 0.1},
+                {"feature": "return_1d", "importance": -0.01, "importance_std": 0.0},
+            ],
+        },
+    )
+    response = client.get(
+        "/api/v1/explain",
+        headers=API_HEADERS,
+        params={"ticker": "ACB", "model_name": "gru"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["model_name"] == "gru"
+    assert body["method"] == "permutation_importance"
+    assert body["baseline_rmse"] == pytest.approx(0.39)
+    assert body["n_repeats"] == 5
+    assert body["n_samples"] == 70
+    assert body["features"][0]["importance_std"] == pytest.approx(0.1)
+    assert body["features"][1]["importance"] == pytest.approx(-0.01)
+
+
+def test_explain_serves_arima_coefficient_artifact(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    _serve_artifact(
+        monkeypatch,
+        tmp_path,
+        {
+            "method": "arima_coefficients",
+            "order": [1, 1, 1],
+            "n_observations": 440,
+            "features": [
+                {
+                    "feature": "ar.L1",
+                    "importance": 0.42,
+                    "coefficient": -0.42,
+                    "std_error": 0.05,
+                    "p_value": 0.001,
+                },
+                {
+                    "feature": "sigma2",
+                    "importance": 0.16,
+                    "coefficient": 0.16,
+                    "std_error": None,
+                    "p_value": None,
+                },
+            ],
+        },
+    )
+    response = client.get(
+        "/api/v1/explain",
+        headers=API_HEADERS,
+        params={"ticker": "ACB", "model_name": "arima"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["method"] == "arima_coefficients"
+    assert body["order"] == [1, 1, 1]
+    assert body["n_observations"] == 440
+    assert body["features"][0]["coefficient"] == pytest.approx(-0.42)
+    assert body["features"][1]["p_value"] is None
+
+
 def test_explain_missing_artifact_is_404(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

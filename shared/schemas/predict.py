@@ -72,15 +72,28 @@ class ModelInfoResponse(BaseModel):
 
 
 class ExplainFeature(BaseModel):
-    """Một feature trong kết quả giải thích mô hình (SHAP)."""
+    """Một feature (hoặc tham số ARIMA) trong kết quả giải thích mô hình.
+
+    Ý nghĩa của ``importance`` phụ thuộc ``ExplainResponse.method``:
+    - ``shap_tree_explainer`` (xgboost, random_forest): độ quan trọng của cây,
+      kèm ``mean_abs_shap``.
+    - ``permutation_importance`` (gru): RMSE tăng thêm (đơn vị giá) khi xáo
+      trộn feature, kèm độ lệch chuẩn ``importance_std`` qua các lần lặp.
+    - ``arima_coefficients`` (arima): |hệ số|, kèm ``coefficient`` có dấu,
+      ``std_error`` và ``p_value``.
+    """
 
     feature: str
     importance: float
     mean_abs_shap: Optional[float] = None
+    importance_std: Optional[float] = None
+    coefficient: Optional[float] = None
+    std_error: Optional[float] = None
+    p_value: Optional[float] = None
 
 
 class ExplainResponse(BaseModel):
-    """Kết quả giải thích mô hình lấy từ artifact SHAP đã log lúc train."""
+    """Kết quả giải thích mô hình lấy từ artifact đã log lúc train."""
 
     ticker: str
     timeframe: str
@@ -88,3 +101,8 @@ class ExplainResponse(BaseModel):
     method: str
     features: List[ExplainFeature]
     generated_at: Optional[datetime] = None
+    n_samples: Optional[int] = None
+    baseline_rmse: Optional[float] = None
+    n_repeats: Optional[int] = None
+    order: Optional[List[int]] = None
+    n_observations: Optional[int] = None

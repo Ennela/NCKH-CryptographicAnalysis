@@ -241,13 +241,21 @@ ngược nếu cần vẽ chart theo chiều thời gian tăng dần.
 
 ---
 
-## 7. GET /api/v1/explain — Giải thích mô hình bằng SHAP (endpoint mới)
+## 7. GET /api/v1/explain — Giải thích mô hình
 
-> Endpoint này thuộc PR backend song song ("feat: real model inference");
-> contract dưới đây là hợp đồng đã thống nhất để frontend tích hợp trước.
+Trả về phần giải thích của model, đọc từ artifact
+`explainability/feature_importance.json` mà entrypoint train của từng model ghi
+vào run MLflow. Mỗi loại model dùng một phương pháp phù hợp, cho biết qua
+trường `method`:
 
-Trả về mức độ quan trọng của từng feature (SHAP TreeExplainer) cho model dạng
-cây (hiện áp dụng cho `xgboost`).
+| `model_name` | `method` | Ý nghĩa của `importance` | Trường bổ sung |
+| :--- | :--- | :--- | :--- |
+| `xgboost`, `random_forest` | `shap_tree_explainer` | Độ quan trọng của cây (gain / impurity) | `mean_abs_shap`: trung bình \|SHAP\| trên tập test |
+| `gru` | `permutation_importance` | RMSE tăng thêm (đơn vị giá) khi xáo trộn feature trên tập test | `importance_std`; cấp response: `baseline_rmse`, `n_repeats`, `n_samples` |
+| `arima` | `arima_coefficients` | \|hệ số\| của tham số ARIMA (ARIMA chỉ dùng giá đóng cửa nên không có feature để xếp hạng) | `coefficient` (có dấu), `std_error`, `p_value` (có thể `null`); cấp response: `order`, `n_observations` |
+
+Các trường bổ sung đều tùy chọn: artifact cũ chỉ có `importance`/`mean_abs_shap`
+vẫn đọc được.
 
 *   **URL**: `/api/v1/explain`
 *   **Method**: `GET`
@@ -259,11 +267,11 @@ cây (hiện áp dụng cho `xgboost`).
 | :--- | :--- | :--- | :--- | :--- |
 | `ticker` | String | Đúng | | Mã tài sản |
 | `timeframe` | String | Sai | `1d` | Khung thời gian |
-| `model_name` | String | Sai | `xgboost` | Model cần giải thích |
+| `model_name` | String | Sai | `xgboost` | `xgboost`, `random_forest`, `gru`, `arima` |
 
 ### Response (JSON - 200 OK)
 
-**Ví dụ Response Body**:
+**Ví dụ — XGBoost / Random Forest**:
 
 ```json
 {
@@ -272,18 +280,47 @@ cây (hiện áp dụng cho `xgboost`).
   "model_name": "xgboost",
   "method": "shap_tree_explainer",
   "features": [
-    {
-      "feature": "close_lag_1",
-      "importance": 0.31,
-      "mean_abs_shap": 0.145
-    },
-    {
-      "feature": "rsi_14",
-      "importance": 0.12,
-      "mean_abs_shap": 0.056
-    }
+    {"feature": "close_lag_1", "importance": 0.31, "mean_abs_shap": 0.145},
+    {"feature": "rsi_14", "importance": 0.12, "mean_abs_shap": 0.056}
   ],
-  "generated_at": "2026-07-26T09:20:00Z"
+  "generated_at": "2026-07-26T09:20:00Z",
+  "n_samples": 78
+}
+```
+
+**Ví dụ — GRU**:
+
+```json
+{
+  "ticker": "ACB",
+  "timeframe": "1d",
+  "model_name": "gru",
+  "method": "permutation_importance",
+  "features": [
+    {"feature": "close", "importance": 1.204, "importance_std": 0.083},
+    {"feature": "return_1d", "importance": -0.002, "importance_std": 0.004}
+  ],
+  "baseline_rmse": 0.387,
+  "n_repeats": 5,
+  "n_samples": 71
+}
+```
+
+**Ví dụ — ARIMA**:
+
+```json
+{
+  "ticker": "ACB",
+  "timeframe": "1d",
+  "model_name": "arima",
+  "method": "arima_coefficients",
+  "features": [
+    {"feature": "ar.L1", "importance": 0.42, "coefficient": -0.42, "std_error": 0.05, "p_value": 0.001},
+    {"feature": "ma.L1", "importance": 0.47, "coefficient": 0.47, "std_error": 0.05, "p_value": 0.0004},
+    {"feature": "sigma2", "importance": 0.16, "coefficient": 0.16, "std_error": 0.01, "p_value": 0.0}
+  ],
+  "order": [1, 1, 1],
+  "n_observations": 444
 }
 ```
 
@@ -291,7 +328,9 @@ cây (hiện áp dụng cho `xgboost`).
 
 | Mã | Ý nghĩa |
 | :--- | :--- |
-| `404` | Model chưa có artifact SHAP (chưa train hoặc chưa sinh giải thích) |
+| `400` | `timeframe` hoặc `model_name` không hợp lệ |
+| `404` | Model chưa đăng ký, hoặc run chưa có artifact giải thích (train lại bằng entrypoint tương ứng) |
+| `503` | Không kết nối được MLflow |
 
 ---
 
