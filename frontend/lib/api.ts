@@ -163,12 +163,18 @@ export interface HealthStatus {
   service: string;
 }
 
+/** One feature (or ARIMA parameter); which optional fields are set depends on ExplainResponse.method. */
 export interface ExplainFeature {
   feature: string;
   importance: number;
   mean_abs_shap: number | null;
+  importance_std?: number | null;
+  coefficient?: number | null;
+  std_error?: number | null;
+  p_value?: number | null;
 }
 
+/** method: shap_tree_explainer (xgboost, random_forest) | permutation_importance (gru) | arima_coefficients (arima). */
 export interface ExplainResponse {
   ticker: string;
   timeframe: string;
@@ -176,6 +182,11 @@ export interface ExplainResponse {
   method: string;
   features: ExplainFeature[];
   generated_at: string;
+  n_samples?: number | null;
+  baseline_rmse?: number | null;
+  n_repeats?: number | null;
+  order?: number[] | null;
+  n_observations?: number | null;
 }
 
 export type ModelName = "arima" | "xgboost" | "random_forest" | "gru";
