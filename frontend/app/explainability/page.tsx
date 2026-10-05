@@ -126,6 +126,7 @@ export default function ExplainabilityPage() {
         <Panel
           title={`${isArima ? "Tham số ước lượng" : "Mức độ ảnh hưởng của đặc trưng"} — ${MODEL_LABEL[modelName]} · ${ticker || "…"} (${timeframeLabel(timeframe)})`}
           actions={<Badge tone="blue">{METHOD_LABEL[method] ?? method}</Badge>}
+          className={isArima ? "self-start" : ""}
           bodyClassName={isArima ? "p-0" : "h-[520px] p-3"}
         >
           {loading ? (
