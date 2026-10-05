@@ -10,6 +10,7 @@ import json
 import logging
 import random
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +44,7 @@ ORDER_OF_MAGNITUDE_LIMIT = 100.0
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PREDICTION_ROOT = REPO_ROOT / "artifacts" / "predictions" / MODEL_NAME
 SUMMARY_ROOT = REPO_ROOT / "artifacts" / "metrics" / MODEL_NAME
+EXPLAIN_ARTIFACT_NAME = "explainability/feature_importance.json"
 
 MANIFEST_FIELDNAMES: tuple[str, ...] = (
     "dataset_version",
@@ -605,6 +607,49 @@ def _log_csv_artifacts(run_id: str, prediction_path: Path, summary_path: Path) -
         mlflow.log_artifact(str(summary_path), artifact_path="metrics")
 
 
+def build_explainability_payload(
+    model: RandomForestModelWrapper,
+    features: pd.DataFrame,
+) -> dict[str, Any]:
+    """Build the SHAP global-importance payload served by /api/v1/explain.
+
+    Input: the fitted wrapper and the feature frame SHAP is computed on (test
+    split). Output: JSON-safe dict with per-feature impurity importance and
+    mean |SHAP| across the provided samples, in the same shape as XGBoost.
+    """
+    shap_values = model.calculate_shap_values(features)
+    mean_abs_shap = np.abs(shap_values).mean(axis=0)
+    importances = model.get_feature_importances(list(features.columns))
+    return {
+        "method": "shap_tree_explainer",
+        "model": MODEL_NAME,
+        "feature_list": list(features.columns),
+        "n_samples": int(len(features)),
+        "features": [
+            {
+                "feature": name,
+                "importance": float(importances[name]),
+                "mean_abs_shap": float(mean_abs_shap[index]),
+            }
+            for index, name in enumerate(features.columns)
+        ],
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _log_explainability_artifact(
+    run_id: str,
+    model: RandomForestModelWrapper,
+    features: pd.DataFrame,
+) -> None:
+    """Attach the SHAP payload to the run for the inference /explain endpoint."""
+    import mlflow
+
+    payload = build_explainability_payload(model, features)
+    with mlflow.start_run(run_id=run_id):
+        mlflow.log_dict(payload, EXPLAIN_ARTIFACT_NAME)
+
+
 def run_training(args: argparse.Namespace) -> str:
     """Execute locked-data training, strict evaluation, and protocol export."""
     set_random_seed(args.seed)
@@ -645,6 +690,7 @@ def run_training(args: argparse.Namespace) -> str:
     write_protocol_csv(prediction_frame, prediction_path, PREDICTION_FIELDNAMES)
     write_protocol_csv(summary_frame, summary_path, SUMMARY_FIELDNAMES)
     _log_csv_artifacts(run_id, prediction_path, summary_path)
+    _log_explainability_artifact(run_id, model, data.X_test)
     logger.info("Random Forest training completed. MLflow run ID: %s", run_id)
     return str(run_id)
 
