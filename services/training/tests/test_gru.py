@@ -608,6 +608,98 @@ def test_model_state_scalers_and_outputs_share_mlflow_run(
     assert loaded["metadata"]["config"]["sequence_length"] == config.sequence_length
 
 
+class FirstFeatureOnlyModel(torch.nn.Module):
+    """Use only feature 0 at the last step so other features are irrelevant."""
+
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        return inputs[:, -1, 0]
+
+
+def test_permutation_importance_flags_only_the_used_feature(
+    sequences: train_gru.PreparedSequences,
+) -> None:
+    baseline, increases = train_gru.permutation_importance(
+        FirstFeatureOnlyModel(),
+        sequences.test,
+        sequences.target_scaler,
+        batch_size=4,
+        device=torch.device("cpu"),
+        seed=42,
+        repeats=3,
+    )
+    naive_rmse = train_gru.evaluate_predictions(
+        sequences.test.actual_close,
+        sequences.test.current_close,
+        sequences.test.current_close,
+    )["rmse"]
+    # Inputs are float32 tensors, so allow single-precision rounding.
+    assert baseline == pytest.approx(naive_rmse, rel=1e-4)
+    assert increases.shape == (3, len(train_gru.FEATURE_LIST))
+    assert (increases[:, 0] > 0.0).all()
+    np.testing.assert_allclose(increases[:, 1:], 0.0, atol=1e-9)
+
+
+def test_permutation_importance_is_seeded_and_leaves_test_inputs_intact(
+    sequences: train_gru.PreparedSequences,
+) -> None:
+    original_inputs = sequences.test.X.copy()
+    runs = [
+        train_gru.permutation_importance(
+            FirstFeatureOnlyModel(),
+            sequences.test,
+            sequences.target_scaler,
+            batch_size=4,
+            device=torch.device("cpu"),
+            seed=7,
+            repeats=2,
+        )[1]
+        for _ in range(2)
+    ]
+    np.testing.assert_array_equal(runs[0], runs[1])
+    np.testing.assert_array_equal(sequences.test.X, original_inputs)
+
+
+def test_explainability_payload_structure() -> None:
+    increases = np.tile(np.arange(len(train_gru.FEATURE_LIST), dtype=float), (2, 1))
+    increases[1] += 1.0
+    payload = train_gru.build_explainability_payload(1.5, increases, 30)
+
+    assert payload["method"] == "permutation_importance"
+    assert payload["model"] == train_gru.MODEL_NAME
+    assert payload["baseline_rmse"] == pytest.approx(1.5)
+    assert payload["n_repeats"] == 2
+    assert payload["n_samples"] == 30
+    assert [item["feature"] for item in payload["features"]] == list(
+        train_gru.FEATURE_LIST
+    )
+    assert payload["features"][0]["importance"] == pytest.approx(0.5)
+    assert payload["features"][0]["importance_std"] == pytest.approx(0.5)
+    json.dumps(payload)
+
+
+def test_explainability_artifact_is_logged_to_the_training_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    started: list[str] = []
+    logged: dict[str, Any] = {}
+
+    @contextmanager
+    def fake_start_run(run_id: str) -> Iterator[None]:
+        started.append(run_id)
+        yield
+
+    def fake_log_dict(payload: dict[str, Any], artifact_file: str) -> None:
+        logged[artifact_file] = payload
+
+    fake_mlflow = SimpleNamespace(start_run=fake_start_run, log_dict=fake_log_dict)
+    monkeypatch.setitem(sys.modules, "mlflow", fake_mlflow)
+
+    train_gru._log_explainability_artifact("run-1", {"method": "x"})
+
+    assert started == ["run-1"]
+    assert logged == {train_gru.EXPLAIN_ARTIFACT_NAME: {"method": "x"}}
+
+
 def test_mlflow_contract_logs_required_params_metrics_and_model(
     monkeypatch: pytest.MonkeyPatch,
     config: train_gru.GRUTrainingConfig,

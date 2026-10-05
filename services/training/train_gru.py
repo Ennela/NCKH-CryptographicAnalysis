@@ -11,7 +11,8 @@ import json
 import logging
 import random
 import tempfile
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -52,6 +53,9 @@ FEATURE_LIST: tuple[str, ...] = (
     "rolling_std_7",
     "rolling_std_14",
 )
+EXPLAIN_ARTIFACT_NAME = "explainability/feature_importance.json"
+# Each feature is shuffled this many times; the mean RMSE increase is reported.
+PERMUTATION_REPEATS = 5
 REPRODUCIBILITY_LIMIT = (
     "Deterministic algorithms are requested, but exact CUDA reproducibility can "
     "still depend on PyTorch, CUDA, cuDNN, driver, and GPU versions."
@@ -805,6 +809,114 @@ def _log_run_artifacts(
             mlflow.log_artifact(str(summary_path), artifact_path="metrics")
 
 
+def _rmse_on_inputs(
+    model: GRUForecaster,
+    split: SequenceSplit,
+    inputs: np.ndarray,
+    target_scaler: MinMaxScaler,
+    batch_size: int,
+    device: torch.device,
+) -> float:
+    """RMSE in close-price units after replacing the split's input tensor."""
+    scaled = predict_scaled(model, replace(split, X=inputs), batch_size, device)
+    errors = split.actual_close - inverse_predictions_once(target_scaler, scaled)
+    return float(np.sqrt(np.mean(np.square(errors))))
+
+
+def permutation_importance(
+    model: GRUForecaster,
+    split: SequenceSplit,
+    target_scaler: MinMaxScaler,
+    batch_size: int,
+    device: torch.device,
+    seed: int,
+    repeats: int = PERMUTATION_REPEATS,
+) -> tuple[float, np.ndarray]:
+    """Measure how much test RMSE grows when each feature is shuffled.
+
+    Input: the trained model and the untouched test split. For feature j the
+    whole 7-step history of feature j is swapped between test sequences (the
+    same row permutation for every time step), which breaks its link to the
+    target while keeping its distribution. Output: (baseline RMSE, array of
+    shape (repeats, n_features) with RMSE increase per repeat and feature).
+    """
+    rng = np.random.default_rng(seed)
+    baseline = _rmse_on_inputs(model, split, split.X, target_scaler, batch_size, device)
+    increases = np.zeros((repeats, len(FEATURE_LIST)), dtype=np.float64)
+    for repeat in range(repeats):
+        for feature_index in range(len(FEATURE_LIST)):
+            shuffled = split.X.copy()
+            order = rng.permutation(len(split))
+            shuffled[:, :, feature_index] = split.X[order, :, feature_index]
+            permuted = _rmse_on_inputs(
+                model, split, shuffled, target_scaler, batch_size, device
+            )
+            increases[repeat, feature_index] = permuted - baseline
+    return baseline, increases
+
+
+def build_explainability_payload(
+    baseline_rmse: float,
+    increases: np.ndarray,
+    n_samples: int,
+) -> dict[str, Any]:
+    """Build the permutation-importance payload served by /api/v1/explain.
+
+    Input: baseline test RMSE, the (repeats, n_features) RMSE increases from
+    permutation_importance, and the number of test sequences. Output: a
+    JSON-safe dict whose importance is the mean RMSE increase (price units).
+    """
+    return {
+        "method": "permutation_importance",
+        "model": MODEL_NAME,
+        "metric": "rmse",
+        "baseline_rmse": float(baseline_rmse),
+        "n_repeats": int(increases.shape[0]),
+        "feature_list": list(FEATURE_LIST),
+        "n_samples": n_samples,
+        "features": [
+            {
+                "feature": name,
+                "importance": float(increases[:, index].mean()),
+                "importance_std": float(increases[:, index].std()),
+            }
+            for index, name in enumerate(FEATURE_LIST)
+        ],
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _log_explainability_artifact(run_id: str, payload: dict[str, Any]) -> None:
+    """Attach the explainability payload to the run for /api/v1/explain."""
+    import mlflow
+
+    with mlflow.start_run(run_id=run_id):
+        mlflow.log_dict(payload, EXPLAIN_ARTIFACT_NAME)
+
+
+def _explain_and_log(
+    run_id: str,
+    model: GRUForecaster,
+    sequences: PreparedSequences,
+    config: GRUTrainingConfig,
+    device: torch.device,
+    seed: int,
+) -> None:
+    """Compute test-split permutation importance and log it to the run."""
+    baseline_rmse, increases = permutation_importance(
+        model,
+        sequences.test,
+        sequences.target_scaler,
+        config.batch_size,
+        device,
+        seed,
+    )
+    payload = build_explainability_payload(
+        baseline_rmse, increases, len(sequences.test)
+    )
+    _log_explainability_artifact(run_id, payload)
+
+
 def _write_and_log_outputs(
     args: argparse.Namespace,
     metadata: DatasetMetadata,
@@ -896,6 +1008,7 @@ def _evaluate_and_export(
         metrics,
         run_id,
     )
+    _explain_and_log(run_id, model, sequences, config, device, args.seed)
     return run_id
 
 
