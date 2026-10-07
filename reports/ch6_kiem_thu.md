@@ -22,7 +22,18 @@ Dưới đây là thống kê 17 tệp kiểm thử tự động hiện có tron
 
 **(c) Đo hiệu năng api**
 
-Kết quả đo (Cache nóng): Mô hình ARIMA đạt p50 = 11.5ms, p95 = 14.3ms, max = 15.7ms. Các mô hình khác phản hồi lỗi trong kịch bản tải liên tục. Kết luận: Với các request thành công, API hoàn toàn đáp ứng tiêu chí p95 $\le$ 2 giây.
+Đo lại ngày 07/10/2026 bằng `reports/src/measure_latency.py` (`POST /api/v1/predict`, ACB 1d, 5 bước; chi tiết và số liệu thô: `reports/validations/api_latency_2026-10-07.md`). Cả 164/164 request trả HTTP 200.
+
+| Mô hình | Lần gọi đầu (tải model) | Model chạy thật — p95 | Trúng cache — p95 |
+|---|---:|---:|---:|
+| ARIMA | 4,66 s | 559 ms | 40 ms |
+| XGBoost | 1,23 s | 555 ms | 27 ms |
+| Random Forest | 0,84 s | 681 ms | 38 ms |
+| GRU | 4,10 s | 293 ms | 39 ms |
+
+Kết luận: API **đạt** tiêu chí p95 ≤ 2 giây với cả bốn mô hình ở trạng thái vận hành. Ngoại lệ là request đầu tiên sau khi khởi động service (ARIMA, GRU mất hơn 4 giây để tải model từ MLflow), chỉ xảy ra một lần.
+
+Lần đo trước chỉ có số liệu ARIMA vì các mô hình đo sau đều nhận HTTP 429: rate limiter làm mới TTL sau mọi request nên khóa client sau request thứ 60 tính tổng. Lỗi đã được sửa (PR #65) trước khi đo lại.
 
 **(d) Tỷ lệ job thành công của pipeline thu thập**
 Dựa trên log thực tế của container `forecast_celery_worker` sau một thời gian vận hành:
