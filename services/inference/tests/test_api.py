@@ -596,3 +596,84 @@ def test_predict_numpy_values_serialize(client: TestClient, monkeypatch) -> None
     )
     assert response.status_code == 200
     assert response.json()["predictions"][0]["predicted_value"] == 55.5
+
+
+# ── rate limiter ───────────────────────────────────────────────────
+
+
+class _FakeRedis:
+    """Minimal INCR/EXPIRE store backing the rate limiter in tests."""
+
+    def __init__(self) -> None:
+        self.counts: dict[str, int] = {}
+
+    def pipeline(self) -> "_FakeRedis._Pipeline":
+        return _FakeRedis._Pipeline(self)
+
+    class _Pipeline:
+        def __init__(self, store: "_FakeRedis") -> None:
+            self.store = store
+            self.ops: list[tuple[str, str]] = []
+
+        def incr(self, key: str) -> None:
+            self.ops.append(("incr", key))
+
+        def expire(self, key: str, seconds: int) -> None:
+            self.ops.append(("expire", key))
+
+        def execute(self) -> list[Any]:
+            results: list[Any] = []
+            for op, key in self.ops:
+                if op == "incr":
+                    self.store.counts[key] = self.store.counts.get(key, 0) + 1
+                    results.append(self.store.counts[key])
+                else:
+                    results.append(True)
+            return results
+
+
+def _limited_client(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, clock: list[float]
+) -> None:
+    monkeypatch.setattr(main.redis_cache, "client", _FakeRedis())
+    monkeypatch.setattr(main.settings, "RATE_LIMIT_PER_MINUTE", 3)
+    monkeypatch.setattr(main.time, "time", lambda: clock[0])
+
+
+def _explain_status(client: TestClient) -> int:
+    response = client.get(
+        "/api/v1/explain",
+        headers=API_HEADERS,
+        params={"ticker": "ACB", "timeframe": "5m"},
+    )
+    return response.status_code
+
+
+def test_rate_limiter_rejects_requests_over_the_minute_limit(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clock = [1_000_020.0]
+    _limited_client(client, monkeypatch, clock)
+    # /explain with a bad timeframe answers 400 once the limiter lets it through.
+    statuses = [_explain_status(client) for _ in range(4)]
+    assert statuses == [400, 400, 400, 429]
+
+
+def test_rate_limiter_resets_each_minute_under_steady_traffic(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression: one request every 30 s must never be throttled at 3/min."""
+    clock = [1_000_020.0]
+    _limited_client(client, monkeypatch, clock)
+    statuses = []
+    for _ in range(10):
+        statuses.append(_explain_status(client))
+        clock[0] += 30.0
+    assert 429 not in statuses
+
+
+def test_rate_limit_bucket_changes_at_the_minute_boundary() -> None:
+    first = main.rate_limit_bucket_key("k", "1.2.3.4", 119.9)
+    second = main.rate_limit_bucket_key("k", "1.2.3.4", 120.0)
+    assert first != second
+    assert first == main.rate_limit_bucket_key("k", "1.2.3.4", 60.0)
