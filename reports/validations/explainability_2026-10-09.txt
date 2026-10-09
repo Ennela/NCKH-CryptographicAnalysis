@@ -1,0 +1,39 @@
+# Explainability artifacts of the 36 registered models (latest versions), extracted 2026-10-09
+# Source: MLflow artifact explainability/feature_importance.json per run; script: see reports/TONG_HOP_SO_LIEU_CUOI_KY.md §5
+# symbol|timeframe|model|registry version|run_id|method|summary
+ACB|1d|arima|v2|5fb2bb0c101742d4b74bba3b51da77ba|arima_coefficients|ar.L1 -0.685 (p=4.26e-10); ma.L1 0.797 (p=2.01e-15)
+ACB|1d|gru|v2|1b200587e72f462e8a953112b7806ad8|permutation_importance|close +1.104; next rolling_std_7 +0.00216; baseline 0.3874
+ACB|1d|random_forest|v2|0edb1f31b64f446197e47d8713ee9d4b|shap_tree_explainer|close 0.5544; rolling_mean_20 0.4169; close_lag_10 0.4144
+ACB|1d|xgboost|v1|15b4c474f1ec4a929662101f34466947|shap_tree_explainer|close_lag_10 0.8902; close_lag_20 0.4481; close_lag_1 0.2391
+BTCUSDT|1d|arima|v2|a73b4dc3f3394a8bab046e0f33c24158|arima_coefficients|ar.L1 0.110 (p=0.742); ma.L1 -7.870 (p=0.701)
+BTCUSDT|1d|gru|v2|aac6f26c11d6435882dc62b8464d3c7e|permutation_importance|close +7547; next moving_average_14 +1.6; baseline 1433
+BTCUSDT|1d|random_forest|v2|625599df123d4e1f8cf0a3d6169e5f6d|shap_tree_explainer|close 1.473e+04; low 5857; rolling_mean_20 2297
+BTCUSDT|1d|xgboost|v1|6781820db689461c8597278baafd1d77|shap_tree_explainer|close_lag_1 1.121e+04; rolling_mean_5 7068; rolling_min_10 2057
+BTCUSDT|1h|arima|v2|55de75f91a174594b80825ece55717ed|arima_coefficients|ar.L1 -0.393 (p=0.052); ma.L1 0.371 (p=0.0685)
+BTCUSDT|1h|gru|v2|4486047ee06c4790bf616ff5d45c8eb3|permutation_importance|close +8523; next rolling_std_7 +0.261; baseline 373.7
+BTCUSDT|1h|random_forest|v2|41d721f0349c4be8b89c88d29f6900d1|shap_tree_explainer|close 1.913e+04; high 1873; low 342.4
+BTCUSDT|1h|xgboost|v1|7264425fb3ee45caa3ee93d9dfd53380|shap_tree_explainer|close_lag_1 1.059e+04; rolling_mean_5 7442; rolling_min_10 1922
+ETHUSDT|1d|arima|v2|8c13ea5101b94b828b4cd7484d14db1f|arima_coefficients|ar.L1 -0.985 (p=0); ma.L1 1.004 (p=0)
+ETHUSDT|1d|gru|v2|ead85bd535094734a734f64041a275c9|permutation_importance|close +301.7; next rolling_std_14 +0.0363; baseline 58.02
+ETHUSDT|1d|random_forest|v2|6ae28078472a47a1a5065167dde10d4e|shap_tree_explainer|close 725.1; low 168.9; high 58.2
+ETHUSDT|1d|xgboost|v1|6fe134ebe65a49e7b39cf4719a616eae|shap_tree_explainer|close_lag_1 463.8; rolling_mean_5 249.4; rolling_max_10 107.8
+FPT|1d|arima|v2|7fd85ff6c2ae4f1982b42ed5a3219ba0|arima_coefficients|ar.L1 -0.314 (p=0.495); ma.L1 0.383 (p=0.386)
+FPT|1d|gru|v2|9a849b6b69054c6aaa2101345286acd1|permutation_importance|close +1.598; next moving_average_14 +0.00353; baseline 1.585
+FPT|1d|random_forest|v2|d916f6803ea147059002791caa2ca1ff|shap_tree_explainer|close 13.93; low 2.24; high 2.165
+FPT|1d|xgboost|v1|82b89db0c88b4f4e958518506d7955c9|shap_tree_explainer|rolling_mean_5 7.33; close_lag_1 4.089; rolling_min_10 1.706
+HPG|1d|arima|v2|56447116b1a84a158b2a9973879f4b7b|arima_coefficients|ar.L1 0.155 (p=0.977); ma.L1 -6.734 (p=0.978)
+HPG|1d|gru|v2|bf3bc5672aa245899f497dfb09bcfec2|permutation_importance|close +0.4695; next moving_average_14 +0.000471; baseline 0.4135
+HPG|1d|random_forest|v3|5f241ef528f2410a82bafbda4576d56c|shap_tree_explainer|close 0.7701; low 0.6444; open 0.6369
+HPG|1d|xgboost|v1|c44b3e8907d04b48b92a1b918865237e|shap_tree_explainer|close_lag_1 1.6; rolling_max_10 0.6505; close_lag_3 0.4349
+SOLUSDT|1d|arima|v2|3eb5276aba704f5ab0de88d961b5771f|arima_coefficients|ar.L1 0.552 (p=0.44); ma.L1 -0.579 (p=0.41)
+SOLUSDT|1d|gru|v3|b4e641b93d544e39a9fd2defea068241|permutation_importance|close +9.174; next moving_average_14 +0.00611; baseline 2.722
+SOLUSDT|1d|random_forest|v3|1bb3850dc8df4a61be8538cc2b766863|shap_tree_explainer|close 39.27; high 14.91; low 4.34
+SOLUSDT|1d|xgboost|v2|4057e7bd294c4cbc92869288edd6c36c|shap_tree_explainer|rolling_mean_5 32.38; close_lag_1 16.36; rolling_min_10 3.631
+VCB|1d|arima|v2|ba8ab536953543588976ac481b662906|arima_coefficients|ar.L1 -0.453 (p=0.00738); ma.L1 0.550 (p=0.000541)
+VCB|1d|gru|v2|4fe87263f0234cddbccdec4a9a0fb659|permutation_importance|close +1.59; next moving_average_14 +0.00376; baseline 1.021
+VCB|1d|random_forest|v2|c276d19daaba48c89f992cac52f2bb27|shap_tree_explainer|close 1.19; low 0.2111; high 0.1873
+VCB|1d|xgboost|v1|e3d2cb7db0e445a788d834070cc9548a|shap_tree_explainer|close_lag_1 0.8479; rolling_mean_5 0.4821; volatility 0.1989
+VNM|1d|arima|v2|b43b508dcc8943e6b96fcdc2cf4cf426|arima_coefficients|ar.L1 0.525 (p=0.000782); ma.L1 -0.645 (p=4.51e-06)
+VNM|1d|gru|v2|bc94e07ca80843f4876b13dfedf79e3d|permutation_importance|close +1.12; next return_7d +0.000998; baseline 0.8575
+VNM|1d|random_forest|v2|f674951cb9a64f34aa69cdb1a70f01c5|shap_tree_explainer|close 1.51; high 0.2183; low 0.1851
+VNM|1d|xgboost|v1|e2750c790639489a93c0665a21d5da2a|shap_tree_explainer|rolling_min_10 0.6492; close_lag_1 0.6374; rolling_mean_5 0.5655

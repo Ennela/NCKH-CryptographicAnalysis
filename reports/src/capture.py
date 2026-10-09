@@ -4,7 +4,7 @@ Repeatable on purpose: the figures in the report regenerate from a running
 stack rather than being pasted in by hand.
 
 Usage (stack running, Chromium/Edge listening on CDP port 9222):
-    python reports/src/capture.py docs/evidence/screenshots/ui
+    python reports/src/capture.py docs/evidence/screenshots/ui [explain,pipeline,...]
 
 Each screen gets a full-page shot plus close-ups of the panels the report
 discusses (statistics table, analysis chart, data quality, job log, ...).
@@ -149,9 +149,23 @@ def capture_forecast(page: Page) -> None:
     panel(page, "Kết quả dự báo chi tiết", "ui_08_ket_qua_du_bao.png")
 
 
+EXPLAIN_SHOTS = (
+    ("xgboost", "ui_09_giai_thich_shap.png"),
+    ("random_forest", "ui_17_giai_thich_random_forest.png"),
+    ("gru", "ui_18_giai_thich_gru.png"),
+    ("arima", "ui_19_giai_thich_arima.png"),
+)
+
+
 def capture_explain(page: Page) -> None:
+    """One shot per model: SHAP, SHAP, permutation importance, ARIMA coefficients."""
     open_page(page, "/explainability", settle_ms=4000)
-    shot(page, "ui_09_giai_thich_shap.png")
+    selects = page.locator("select")
+    selects.nth(0).select_option("ACB")
+    for model, name in EXPLAIN_SHOTS:
+        selects.nth(2).select_option(model)
+        page.wait_for_timeout(1500)
+        shot(page, name, full=True)
 
 
 def capture_pipeline(page: Page) -> None:
@@ -176,14 +190,18 @@ with sync_playwright() as pw:
     context = browser.contexts[0]
     page = context.new_page()
     page.set_viewport_size(VIEWPORT)
-    for step in (
+    steps = (
         capture_overview,
         capture_analysis,
         capture_forecast,
         capture_explain,
         capture_pipeline,
         capture_swagger,
-    ):
-        step(page)
+    )
+    # Optional third argument: comma-separated step names, e.g. "explain".
+    wanted = set(sys.argv[2].split(",")) if len(sys.argv) > 2 else None
+    for step in steps:
+        if wanted is None or step.__name__.removeprefix("capture_") in wanted:
+            step(page)
     page.close()
 print("done")
