@@ -2,7 +2,9 @@ import logging
 
 from celery import Celery
 from celery.schedules import crontab
+from celery.signals import worker_process_init
 from shared.config.settings import settings
+from shared.db.session import sync_engine
 
 try:
     from app.scheduler import SchedulerSettings, generate_beat_schedule
@@ -19,6 +21,21 @@ celery_app = Celery(
     backend=settings.REDIS_URL,
     include=["tasks"],
 )
+
+
+@worker_process_init.connect
+def reset_db_pool_after_fork(**_kwargs: object) -> None:
+    """Give each forked worker process its own database connections.
+
+    The prefork pool forks children after this module (and shared.db.session)
+    is imported, so without this every child inherits the parent's pooled
+    psycopg2 connections and concurrent tasks interleave on the same socket
+    ("result object does not return rows", lost savepoints, jobs stuck in
+    'running'). dispose(close=False) drops the inherited pool without closing
+    the parent's sockets; the child then opens fresh connections on demand.
+    """
+    sync_engine.dispose(close=False)
+
 
 # Celery Configuration
 celery_app.conf.update(
