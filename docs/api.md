@@ -26,10 +26,12 @@ X-API-Key: your-secure-api-key-here
 
 *   Khóa hợp lệ được cấu hình qua biến môi trường `API_KEY_SECRET`
     (`shared/config/settings.py`). Thiếu hoặc sai khóa → `401 Unauthorized`.
-*   Rate limit: giới hạn theo cặp (API key, IP) bằng Redis, ngưỡng cấu hình qua
+*   Rate limit (chỉ áp dụng cho `POST /api/v1/predict` và `GET /api/v1/explain`):
+    giới hạn theo cặp (API key, IP) bằng Redis, đếm theo **từng phút cố định**
+    (mỗi phút một khóa Redis riêng), ngưỡng cấu hình qua
     `settings.RATE_LIMIT_PER_MINUTE` (mặc định 60 request/phút). Vượt ngưỡng →
-    `429 Too Many Requests`. Nếu Redis không chạy, rate limit được bỏ qua
-    (thiết kế fail-open).
+    `429 Too Many Requests`; sang phút mới bộ đếm bắt đầu lại. Nếu Redis không
+    chạy, rate limit được bỏ qua (thiết kế fail-open).
 *   `GET /health` KHÔNG yêu cầu API key (phục vụ Docker/K8s healthcheck).
 
 ---

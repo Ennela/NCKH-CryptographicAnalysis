@@ -1,5 +1,6 @@
 import json
 import logging
+import time
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -103,36 +104,52 @@ async def verify_api_key(
     return x_api_key
 
 
+RATE_LIMIT_WINDOW_SECONDS = 60
+
+
+def rate_limit_bucket_key(x_api_key: str, client_ip: str, now: float) -> str:
+    """Redis key of the fixed one-minute window that ``now`` falls into.
+
+    Every window gets its own key, so the count restarts at each minute
+    boundary no matter how steadily requests keep arriving.
+    """
+    window = int(now // RATE_LIMIT_WINDOW_SECONDS)
+    return f"rate_limit:{x_api_key}:{client_ip}:{window}"
+
+
 async def rate_limiter(request: Request, x_api_key: str = Depends(verify_api_key)):
     """
-    Very simple Redis-based Rate Limiter.
-    Limits clients based on their API Key and IP.
+    Fixed-window Redis rate limiter: at most RATE_LIMIT_PER_MINUTE requests per
+    API key and client IP in each calendar minute.
+
+    The previous version refreshed one key's 60 s TTL on every request, so a
+    client that never paused for a full minute was locked out for good after
+    its 60th request instead of once per minute.
     """
     if not redis_cache.client:
         return  # Skip rate limit checks if Redis is not running
 
     client_ip = request.client.host
-    rate_limit_key = f"rate_limit:{x_api_key}:{client_ip}"
+    rate_limit_key = rate_limit_bucket_key(x_api_key, client_ip, time.time())
 
     try:
-        current_requests = redis_cache.client.get(rate_limit_key)
-        if current_requests and int(current_requests) >= settings.RATE_LIMIT_PER_MINUTE:
-            logger.warning(f"Rate limit exceeded for client: {client_ip}")
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Too many requests. Limit exceeded.",
-            )
-
-        # Increment request count and set 60s expiration
         pipe = redis_cache.client.pipeline()
         pipe.incr(rate_limit_key)
-        pipe.expire(rate_limit_key, 60)
-        pipe.execute()
-
+        # Expire the window key shortly after its minute ends; the TTL being
+        # refreshed within the same window is harmless.
+        pipe.expire(rate_limit_key, RATE_LIMIT_WINDOW_SECONDS * 2)
+        current_requests, _ = pipe.execute()
     except redis.RedisError as e:
         logger.error(f"Rate limiter Redis error: {str(e)}")
         # Allow request to proceed if rate limiting fails due to Redis error (Fail-open design)
         return
+
+    if int(current_requests) > settings.RATE_LIMIT_PER_MINUTE:
+        logger.warning(f"Rate limit exceeded for client: {client_ip}")
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Limit exceeded.",
+        )
 
 
 # ==============================================================================
