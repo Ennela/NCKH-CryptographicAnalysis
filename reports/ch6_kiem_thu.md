@@ -12,7 +12,7 @@ Dưới đây là thống kê 17 tệp kiểm thử tự động hiện có tron
 | Service | Tệp kiểm thử | Mục tiêu kiểm thử | Loại | Kết quả |
 |---|---|---|---|---|
 | **Inference** | `test_api.py`, `test_predictors.py`, `test_features.py` | Kiểm tra mã lỗi HTTP 401/422/429, luồng nạp model, logic tính đặc trưng | Unit/Integration | Pass |
-| **Ingestion** | `test_pipeline.py`, `test_tasks.py`, `test_cleaning.py` | Luồng thu thập từ adapter, chuẩn hóa múi giờ, kích hoạt task Celery | Unit/Integration | Fail (Lỗi môi trường thiếu Redis/DB test) |
+| **Ingestion** | `test_pipeline.py`, `test_tasks.py`, `test_cleaning.py`, `test_celery_app.py`... | Luồng thu thập từ adapter, chuẩn hóa múi giờ, kích hoạt task Celery, kết nối DB sau khi fork | Unit/Integration | Pass trên CI (có TimescaleDB); fail nếu chạy trên máy không có DB test |
 | **Training** | `test_arima.py`, `test_gru.py`, `test_benchmark.py`... | Khởi tạo mô hình, quy tắc fit scaler, kiểm tra định dạng benchmark | Unit | Pass |
 | **Shared** | `test_dataset_contract.py`, `test_mappers.py`... | Đối chiếu fingerprint OHLCV, chuyển đổi DTO sang Entity | Integration | Pass |
 
@@ -35,11 +35,19 @@ Kết luận: API **đạt** tiêu chí p95 ≤ 2 giây với cả bốn mô hì
 
 Lần đo trước chỉ có số liệu ARIMA vì các mô hình đo sau đều nhận HTTP 429: rate limiter làm mới TTL sau mọi request nên khóa client sau request thứ 60 tính tổng. Lỗi đã được sửa (PR #65) trước khi đo lại.
 
-**(d) Tỷ lệ job thành công của pipeline thu thập**
-Dựa trên log thực tế của container `forecast_celery_worker` sau một thời gian vận hành:
-- Tổng số task thành công (succeeded): 11
-- Tổng số task thất bại (failed): 0
-- **Tỷ lệ thành công: 100%** (Vượt tiêu chí ≥ 95%).
+**(d) Tỷ lệ job thành công của pipeline thu thập (NFR-08: ≥ 95 % trong ≥ 24 giờ)**
+
+Số liệu đọc trực tiếp từ bảng `ops.job_log` (mỗi job ghi trạng thái vào bảng này), giai đoạn vận hành 16/09 – 05/10/2026 trên stack local:
+
+| Loại job | Thành công | Thất bại | Kẹt ở `running` |
+|---|---:|---:|---:|
+| ingest (thu thập) | 29 | 0 | 0 |
+| clean (làm sạch) | 31 | 4 | 11 |
+
+- Tỷ lệ thành công: **60/75 = 80 %** (ingest 100 %, clean 67 %) → **chưa đạt** tiêu chí ≥ 95 %.
+- Nguyên nhân: Celery worker chạy prefork, các tiến trình con dùng chung kết nối Postgres của tiến trình cha nên tác vụ clean chạy đồng thời làm hỏng giao dịch của nhau. Đã tái hiện (20 tác vụ đồng thời: 15/20 và 12/20 thành công) và sửa (20/20 ở cả 2 lần chạy) ở PR #67.
+- Đo lại sau khi sửa: pipeline chạy liên tục từ 09/10/2026 21:58 (giờ VN) để đo đủ 24 giờ — **chưa có kết quả** tại thời điểm cập nhật.
+- Số liệu cũ ("11 thành công, 0 thất bại, 100 %") lấy từ log container trong một khoảng ngắn, không khớp `ops.job_log` nên đã được thay.
 
 **(e) Bảo mật**
 Kiểm chứng thực tế các kịch bản gọi API:
