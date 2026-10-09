@@ -15,6 +15,7 @@ soạn tay. Khi thiết kế hệ thống hoặc kết quả thí nghiệm thay 
 | `report_data.py` + `report_part2.py` | Nội dung báo cáo → `report.json` |
 | `build_docx.js` | `report.json` + hình → tệp `.docx` |
 | `chx_data.py` + `build_chx.js` | Chương X (thu thập – làm sạch – chuẩn hóa – thống kê – dashboard) → `reports/Chuong_X_Du_lieu.docx`; số liệu đọc trực tiếp từ API đang chạy |
+| `measure_latency.py` | Độ trễ `POST /api/v1/predict` của 4 mô hình (lần gọi đầu / model chạy thật / trúng cache) → `reports/validations/api_latency_*.csv` |
 | `agile_metrics.py` | Số liệu sprint từ Git/GitHub → `reports/agile_metrics.csv` |
 | `all_results.csv` | Chỉ số của 36 MLflow run, tổng hợp từ `artifacts/metrics/` (thư mục này nằm trong `.gitignore`) |
 

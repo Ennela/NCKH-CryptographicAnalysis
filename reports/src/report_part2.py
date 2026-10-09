@@ -892,8 +892,8 @@ def build(ctx):
             [
                 "API dự báo",
                 "p95 ≤ 2 giây",
-                "Chưa đo chính thức; quan sát 0,3–0,5 s",
-                "Chưa kết luận",
+                "p95 ≤ 0,68 s cả 4 mô hình (đo 07/10); lần gọi đầu sau khởi động 0,8–4,7 s",
+                "Đạt",
             ],
             [
                 "Bảo mật tối thiểu",
