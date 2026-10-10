@@ -110,7 +110,7 @@ def box(
         )
 
 
-def band(ax, x, y, w, h, label, color=LINE):
+def band(ax, x, y, w, h, label, color=LINE, label_at="top"):
     ax.add_patch(
         FancyBboxPatch(
             (x, y),
@@ -126,10 +126,10 @@ def band(ax, x, y, w, h, label, color=LINE):
     )
     ax.text(
         x + 0.16,
-        y + h - 0.34,
+        y + h - 0.34 if label_at == "top" else y + 0.16,
         label,
         ha="left",
-        va="top",
+        va="top" if label_at == "top" else "bottom",
         fontsize=8.5 * FS,
         fontweight="bold",
         color=MUTED,
@@ -283,7 +283,15 @@ def d1_architecture():
         "Hình 3.1 — Kiến trúc triển khai hệ thống (9 container Docker Compose)",
         "Mũi tên chỉ chiều gọi hoặc ghi dữ liệu; số cổng kèm theo là cổng mở ra máy phát triển",
     )
-    band(ax, 3.15, 2.55, 13.05, 4.95, "Docker Compose — mạng nội bộ forecast")
+    band(
+        ax,
+        3.15,
+        2.55,
+        13.05,
+        4.95,
+        "Docker Compose — mạng nội bộ forecast",
+        label_at="bottom",
+    )
 
     box(
         ax,
@@ -368,7 +376,7 @@ def d1_architecture():
         2.60,
         1.15,
         "Inference API",
-        "FastAPI :8000\n5 endpoint, API key",
+        "FastAPI :8000\n10 endpoint, API key",
         AQUA,
     )
     box(ax, 13.45, 1.35, 2.60, 1.05, "Frontend", "Next.js + ECharts\n:3000", AQUA)
@@ -464,7 +472,7 @@ def d2_pipeline(
         ("9. Inference API", "POST /predict\ncache Redis 300 s", AQUA),
         ("8. MLflow Registry", "{SYMBOL}_{tf}_{model}\nversion + artifact", MAGENTA),
         ("7. Huấn luyện", "seed 42, chia theo thời gian\n70 / 15 / 15", MAGENTA),
-        ("6. Feature engineering", "4 bộ riêng: 19 / 16 / 8\n/ univariate", MAGENTA),
+        ("6. Feature engineering", "XGBoost 19 · RF 18\nGRU 8 · ARIMA 1 biến", MAGENTA),
     ]
     for x, (t, s, c) in zip(xs, top):
         box(ax, x, y1, w, h, t, s, c)
@@ -478,7 +486,7 @@ def d2_pipeline(
         (xs[4] + w / 2, y1),
         (xs[4] + w / 2, y2 + h),
         "khóa dữ liệu",
-        lab_off=(1.35, 0),
+        lab_off=(0.80, 0),
     )
     for i in range(4, 0, -1):
         arrow(ax, (xs[i], y2 + h / 2), (xs[i - 1] + w, y2 + h / 2))
@@ -490,7 +498,8 @@ def d2_pipeline(
         6.05,
         1.35,
         "Benchmark evaluator (services.training.benchmark)",
-        "dựng lại manifest chung • đối chiếu SHA-256 • nạp lại artifact • tính lại metric\n"
+        "dựng lại manifest chung • đối chiếu SHA-256\n"
+        "nạp lại artifact • tính lại metric\n"
         "→ bằng chứng có checksum trong docs/evidence/",
         GREEN,
     )
@@ -508,17 +517,20 @@ def d2_pipeline(
 
 # ── D3: ERD ──────────────────────────────────────────────────────────
 def d3_erd():
-    fig, ax = canvas(15, 9.0, (0, 16.4), (0, 10.0))
+    fig, ax = canvas(15, 10.2, (0, 16.4), (0, 11.2))
     title(
         ax,
         "Hình 3.3 — Sơ đồ quan hệ thực thể (14 bảng trên 3 schema)",
-        "Viền liền = đang được mã nguồn ghi/đọc · Viền đứt = đã thiết kế, chưa có luồng ghi",
+        "Viền liền = đang được mã nguồn ghi/đọc (market.*, ops.*) · "
+        "Viền đứt = đã thiết kế, chưa có luồng ghi (ml.*)",
     )
 
     placed = {}
+    header, pitch, pad = 0.44, 0.29, 0.14
 
     def tbl(x, ytop, name, cols, color, used=True):
-        h = 0.40 + 0.225 * len(cols)
+        """Entity box sized from its column count; returns the next free y."""
+        h = header + pitch * len(cols) + pad
         w, y = 3.05, ytop - h
         ls = "-" if used else (0, (4, 3))
         lw = 1.5 if used else 1.1
@@ -537,9 +549,9 @@ def d3_erd():
         )
         ax.add_patch(
             Rectangle(
-                (x, ytop - 0.40),
+                (x, ytop - header),
                 w,
-                0.40,
+                header,
                 facecolor=TINT[color],
                 edgecolor=color,
                 linewidth=lw,
@@ -549,7 +561,7 @@ def d3_erd():
         )
         ax.text(
             x + w / 2,
-            ytop - 0.20,
+            ytop - header / 2,
             name,
             ha="center",
             va="center",
@@ -561,7 +573,7 @@ def d3_erd():
         for i, c in enumerate(cols):
             ax.text(
                 x + 0.12,
-                ytop - 0.57 - 0.225 * i,
+                ytop - header - pitch * (i + 0.5) - 0.03,
                 c,
                 ha="left",
                 va="center",
@@ -569,69 +581,59 @@ def d3_erd():
                 color=INK if used else MUTED,
                 zorder=4,
             )
-            if i == 0:
-                ax.plot(
-                    [x + 0.06, x + w - 0.06],
-                    [ytop - 0.685, ytop - 0.685],
-                    color="#dcdcd6",
-                    linewidth=0.7,
-                    zorder=4,
-                )
         placed[name] = (x, y, w, h)
-        return placed[name]
+        return y - 0.42
 
-    band(ax, 0.20, 2.45, 3.85, 6.75, "schema market", BLUE)
-    tbl(0.40, 8.55, "exchange", ["PK id", "code, name", "asset_class"], BLUE)
-    tbl(
+    band(ax, 0.20, 1.85, 3.85, 8.05, "schema market", BLUE)
+    y = 9.30
+    y = tbl(0.40, y, "exchange", ["PK id", "code, name", "asset_class"], BLUE)
+    y = tbl(
         0.40,
-        7.00,
+        y,
         "symbol",
         ["PK id", "FK exchange_id", "ticker, source", "asset_class, status"],
         BLUE,
     )
-    tbl(
-        0.40,
-        5.25,
-        "ohlcv_raw",
-        ["PK id", "FK symbol_id", "ts, raw_payload JSONB"],
-        BLUE,
+    y = tbl(
+        0.40, y, "ohlcv_raw", ["PK id", "FK symbol_id", "ts, raw_payload JSONB"], BLUE
     )
     tbl(
         0.40,
-        3.75,
+        y,
         "ohlcv   [hypertable]",
         ["PK (symbol_id, tf, ts)", "open/high/low/close", "volume, vwap"],
         BLUE,
     )
 
-    band(ax, 4.30, 1.35, 7.30, 7.85, "schema ml")
-    tbl(
+    band(ax, 4.30, 0.45, 7.30, 9.45, "schema ml")
+    y = 9.30
+    y = tbl(
         4.50,
-        8.55,
+        y,
         "feature_set",
         ["PK id", "name, version", "feature_list JSONB"],
         MAGENTA,
         False,
     )
-    tbl(
+    y = tbl(
         4.50,
-        6.95,
+        y,
         "feature_value  [ht]",
         ["PK (set, symbol, tf, ts)", "features JSONB", "label"],
         MAGENTA,
         False,
     )
-    tbl(
+    y = tbl(
         4.50,
-        5.35,
+        y,
         "model_metric",
         ["PK id", "FK model_version_id", "split, metric_name, value"],
         MAGENTA,
         False,
     )
-    tbl(
+    y = tbl(
         4.50,
-        3.75,
+        y,
         "backtest_run",
         ["PK id", "FK model_version_id", "period TSTZRANGE"],
         MAGENTA,
@@ -639,23 +641,24 @@ def d3_erd():
     )
     tbl(
         4.50,
-        2.30,
+        y,
         "backtest_result",
         ["FK backtest_run_id", "metric_name, value"],
         MAGENTA,
         False,
     )
-    tbl(
+    y = 9.30
+    y = tbl(
         8.35,
-        8.55,
+        y,
         "model",
         ["PK id", "name, family", "FK symbol_id, timeframe"],
         MAGENTA,
         False,
     )
-    tbl(
+    y = tbl(
         8.35,
-        6.95,
+        y,
         "model_version",
         [
             "PK id",
@@ -669,38 +672,45 @@ def d3_erd():
     )
     tbl(
         8.35,
-        4.85,
+        y,
         "prediction  [ht]",
         ["FK model_version_id", "feature_asof_ts < target_ts", "y_pred, y_true"],
         MAGENTA,
         False,
     )
 
-    band(ax, 11.85, 5.55, 4.35, 3.65, "schema ops", ORANGE)
-    tbl(
+    band(ax, 11.85, 5.55, 4.35, 4.35, "schema ops", ORANGE)
+    y = 9.30
+    y = tbl(
         12.50,
-        8.55,
+        y,
         "job_log  [hypertable]",
-        ["job_type, status", "FK symbol_id", "duration_ms, error"],
+        ["job_type, status", "FK symbol_id", "duration_ms, error_message"],
         ORANGE,
-        False,
     )
-    tbl(
-        12.50,
-        6.95,
-        "data_quality_check",
-        ["FK symbol_id", "check_name, passed"],
-        ORANGE,
-        False,
-    )
+    tbl(12.50, y, "data_quality_check", ["FK symbol_id", "check_name, passed"], ORANGE)
 
-    def link(a, b, dashed=False):
-        x1, y1, w1, h1 = placed[a]
-        x2, y2, w2, h2 = placed[b]
+    def mid_bottom(name):
+        x, y0, w, _ = placed[name]
+        return (x + w / 2, y0)
+
+    def mid_top(name):
+        x, y0, w, h = placed[name]
+        return (x + w / 2, y0 + h)
+
+    for a, b, dashed in (
+        ("exchange", "symbol", False),
+        ("symbol", "ohlcv_raw", False),
+        ("ohlcv_raw", "ohlcv   [hypertable]", False),
+        ("feature_set", "feature_value  [ht]", True),
+        ("model", "model_version", True),
+        ("model_version", "prediction  [ht]", True),
+        ("backtest_run", "backtest_result", True),
+    ):
         ax.add_patch(
             FancyArrowPatch(
-                (x1 + w1 / 2, y1),
-                (x2 + w2 / 2, y2 + h2),
+                mid_bottom(a),
+                mid_top(b),
                 arrowstyle="-",
                 color=LINE,
                 linewidth=1.1,
@@ -709,31 +719,29 @@ def d3_erd():
             )
         )
 
-    link("exchange", "symbol")
-    link("symbol", "ohlcv_raw")
-    link("ohlcv_raw", "ohlcv   [hypertable]")
-    link("feature_set", "feature_value  [ht]", True)
-    link("model", "model_version", True)
-    link("model_version", "prediction  [ht]", True)
-    link("backtest_run", "backtest_result", True)
-    ax.add_patch(
-        FancyArrowPatch(
-            (3.45, 6.30),
-            (4.50, 6.30),
-            arrowstyle="-",
-            color=LINE,
-            linewidth=1.1,
-            linestyle="--",
-            zorder=1,
-        )
-    )
-    for y_from, y_to in ((5.95, 5.05), (5.60, 3.45)):
+    def side(name, right):
+        x, y0, w, h = placed[name]
+        return (x + w if right else x, y0 + h / 2)
+
+    for a, b in (("symbol", "feature_value  [ht]"),):
         ax.add_patch(
             FancyArrowPatch(
-                (8.35, y_from),
-                (7.55, y_to),
+                side(a, True),
+                side(b, False),
                 arrowstyle="-",
-                connectionstyle="arc3,rad=0.12",
+                color=LINE,
+                linewidth=1.1,
+                linestyle="--",
+                zorder=1,
+            )
+        )
+    for target in ("model_metric", "backtest_run"):
+        ax.add_patch(
+            FancyArrowPatch(
+                side("model_version", False),
+                side(target, True),
+                arrowstyle="-",
+                connectionstyle="arc3,rad=0.15",
                 color=LINE,
                 linewidth=1.1,
                 linestyle="--",
@@ -741,18 +749,50 @@ def d3_erd():
             )
         )
 
-    box(
-        ax,
-        11.85,
-        1.35,
-        4.35,
-        3.85,
+    nx, ny, nw, nh = 11.85, 1.25, 4.35, 3.95
+    ax.add_patch(
+        FancyBboxPatch(
+            (nx, ny),
+            nw,
+            nh,
+            boxstyle="round,pad=0,rounding_size=0.08",
+            facecolor=TINT[GREEN],
+            edgecolor=GREEN,
+            linewidth=1.3,
+            zorder=2,
+        )
+    )
+    ax.text(
+        nx + nw / 2,
+        ny + nh - 0.30,
         "Ba điểm cần đọc kỹ trên sơ đồ",
-        "(1) Ràng buộc chống trùng lặp: market.ohlcv có\nPRIMARY KEY (symbol_id, timeframe, ts) và được\nghi bằng upsert, nên chạy lại job thu thập không\nsinh thêm bản ghi.\n\n"
-        "(2) Ràng buộc chống nhìn trước tương lai:\nml.prediction có CHECK (feature_asof_ts <\ntarget_ts) — look-ahead bias bị chặn ngay ở\ntầng cơ sở dữ liệu, không phụ thuộc mã Python.\n\n"
-        "(3) Vì sao nhóm bảng ml.* còn nét đứt: vai trò\nlưu run, tham số, chỉ số và phiên bản mô hình\nhiện do MLflow Tracking + Model Registry đảm\nnhiệm. Thiết kế được giữ lại để có đường di trú\nkhi cần tự chủ, và được ghi nhận là nợ kỹ thuật.",
-        GREEN,
-        fs=9.0 * FS,
+        ha="center",
+        va="center",
+        fontsize=8.8 * FS,
+        fontweight="bold",
+        color=INK,
+        zorder=3,
+    )
+    ax.text(
+        nx + 0.18,
+        ny + nh - 0.62,
+        "(1) Chống trùng lặp: market.ohlcv có PRIMARY\n"
+        "KEY (symbol_id, timeframe, ts) và được ghi bằng\n"
+        "upsert — chạy lại job thu thập không sinh thêm\n"
+        "bản ghi.\n\n"
+        "(2) Chống nhìn trước tương lai: ml.prediction có\n"
+        "CHECK (feature_asof_ts < target_ts) ở tầng cơ\n"
+        "sở dữ liệu.\n\n"
+        "(3) Nhóm ml.* còn nét đứt: run, tham số, chỉ số\n"
+        "và phiên bản mô hình hiện do MLflow đảm nhiệm,\n"
+        "nên /predict chưa lưu được vào ml.prediction.\n"
+        "Ghi nhận là nợ kỹ thuật.",
+        ha="left",
+        va="top",
+        fontsize=7.3 * FS,
+        color=MUTED,
+        zorder=3,
+        linespacing=1.35,
     )
     save(fig, "d3_erd.png")
 
@@ -789,11 +829,11 @@ def d4_sequence():
     steps = [
         (1.15, 3.6, 6.95, "(1) chọn mã, mô hình, số bước"),
         (3.6, 6.5, 6.55, "(2) POST /predict + header X-API-Key"),
-        (6.5, 9.3, 6.15, "(3) verify_api_key → INCR rate_limit (429 nếu vượt)"),
+        (6.5, 9.3, 6.15, "(3) verify_api_key → INCR rate_limit:<phút> (429 nếu vượt)"),
         (6.5, 9.3, 5.75, "(4) GET cache dự báo"),
         (9.3, 6.5, 5.35, "(5) cache miss"),
         (6.5, 11.6, 4.95, "(6) SELECT 400 nến gần nhất (symbol_id, timeframe)"),
-        (6.5, 14.3, 4.55, "(7) search_model_versions → models:/ACB_1d_gru/1"),
+        (6.5, 14.3, 4.55, "(7) search_model_versions → phiên bản mới nhất"),
         (14.3, 6.5, 4.15, "(8) state_dict + 2 scaler + tham số kiến trúc"),
         (6.5, 6.5, 3.55, "(9) dựng 8 đặc trưng × 7 bước, dự báo lặp nhiều bước"),
         (6.5, 11.6, 2.95, "(10) ghi ml.prediction (bỏ qua nếu thiếu model_version)"),
@@ -881,7 +921,7 @@ def d4_sequence():
         0.05,
         7.1,
         0.75,
-        "Đo được khi demo: 0,3–0,5 giây/yêu cầu (cache nguội, 3 bước)",
+        "Đo 07/10: p95 ≤ 0,68 s khi model chạy · ≤ 0,04 s khi trúng cache",
         color=GREEN,
         fs=8.2 * FS,
     )
@@ -904,7 +944,7 @@ def d5_usecase():
     title(
         ax,
         "Hình 2.1 — Biểu đồ ca sử dụng",
-        "Nét đứt = ca sử dụng đã thiết kế nhưng chưa hiện thực hóa tại thời điểm báo cáo",
+        "Ba tác nhân: người xem, tác nhân hệ thống (Celery Beat) và thành viên nhóm",
     )
 
     ax.add_patch(
@@ -1005,7 +1045,7 @@ def d5_usecase():
     u1 = uc(5.55, 6.75, "Xem danh sách mã & giá gần nhất")
     u2 = uc(5.55, 5.85, "Xem biểu đồ lịch sử OHLC")
     u3 = uc(5.55, 4.95, "Chạy dự báo cho một mã", AQUA)
-    u4 = uc(5.55, 4.05, "Xem giải thích SHAP của mô hình", AQUA)
+    u4 = uc(5.55, 4.05, "Xem giải thích mô hình (4 mô hình)", AQUA)
     u5 = uc(5.55, 3.15, "So sánh chỉ số các mô hình", AQUA)
     u6 = uc(5.55, 2.25, "Thu thập dữ liệu theo lịch", ORANGE)
     u7 = uc(5.55, 1.35, "Làm sạch & kiểm định dữ liệu", ORANGE)
@@ -1014,7 +1054,7 @@ def d5_usecase():
     u10 = uc(9.95, 4.5, "Đăng ký mô hình lên Registry", MAGENTA)
     u11 = uc(9.95, 3.6, "Chạy benchmark 4 mô hình", GREEN)
     u12 = uc(9.95, 2.7, "Xuất bằng chứng có checksum", GREEN)
-    u13 = uc(9.95, 1.5, "Xem log & trạng thái hệ thống", YELLOW, dashed=True)
+    u13 = uc(9.95, 1.5, "Xem nhật ký job & chất lượng dữ liệu", YELLOW)
 
     for u in (u1, u2, u3, u4, u5):
         ax.plot(
@@ -1033,7 +1073,6 @@ def d5_usecase():
         [4.0, u13[1]],
         color=LINE,
         linewidth=1.0,
-        linestyle="--",
         zorder=1,
     )
     ax.plot(
@@ -1045,7 +1084,7 @@ def d5_usecase():
         zorder=1,
     )
     ax.text(
-        8.05, 4.95, "«include»", fontsize=6.8 * FS, color=MUTED, ha="center", zorder=3
+        8.30, 4.95, "«include»", fontsize=6.8 * FS, color=MUTED, ha="right", zorder=3
     )
     save(fig, "d5_use_case.png")
 
@@ -1071,7 +1110,7 @@ def d6_cicd():
         ORANGE,
     )
     box(ax, 6.10, 3.35, 2.40, 1.25, "Pull Request", "mẫu PR +\nCODEOWNERS", BLUE)
-    band(ax, 8.85, 1.75, 3.35, 4.55, "GitHub Actions — 4 job chạy song song", MAGENTA)
+    band(ax, 8.85, 1.20, 3.35, 4.80, "GitHub Actions — 4 job song song", MAGENTA)
     for i, (name, sub) in enumerate(
         [
             ("Lint & Format", "ruff check + format"),
@@ -1083,9 +1122,9 @@ def d6_cicd():
         box(
             ax,
             8.98,
-            5.00 - i * 0.95,
+            4.60 - i * 0.92,
             3.10,
-            0.80,
+            0.78,
             name,
             sub,
             MAGENTA,
@@ -1099,7 +1138,7 @@ def d6_cicd():
         3.45,
         1.25,
         "Merge vào develop",
-        "chỉ khi 4 job xanh\n+ ≥ 1 review",
+        "quy định: 4 job xanh + ≥ 1 review\n(branch protection chưa bật)",
         GREEN,
     )
     box(
@@ -1173,8 +1212,8 @@ def d7_mlops():
         6.15,
         1.60,
         "(6) Cổng kiểm định khoa học — benchmark evaluator",
-        "cùng test manifest cho cả 4 mô hình • đối chiếu SHA-256 • nạp lại artifact\n"
-        "tính lại metric (dung sai 1e-12) • so với baseline Naive",
+        "ACB 1d: cùng test manifest cho 4 mô hình • đối chiếu SHA-256\n"
+        "nạp lại artifact • tính lại metric (dung sai 1e-12) • so với Naive",
         GREEN,
     )
     box(
@@ -1202,14 +1241,615 @@ def d7_mlops():
     box(
         ax,
         0.25,
-        0.30,
+        0.10,
         15.85,
-        0.85,
-        'Mô hình chỉ được đưa vào phục vụ sau khi đi qua cổng (6) — hệ thống không bao giờ tự chọn "bản mới nhất" trong Registry',
+        1.15,
+        "Hạn chế: Inference nạp phiên bản mới nhất trong Registry;\n"
+        "cổng (6) là bước kiểm định nghiên cứu, chưa tự động quyết định phiên bản được phục vụ",
         color=YELLOW,
-        fs=9.2 * FS,
+        fs=8.6 * FS,
     )
     save(fig, "d7_vong_doi_model.png")
+
+
+# ── D8: class diagrams (UML) ─────────────────────────────────────────
+def uml_class(ax, x, ytop, w, name, attrs=(), methods=(), color=BLUE, stereo=None):
+    """UML class box (name / attributes / operations); returns its geometry."""
+    pitch = 0.27
+    head = 0.62 if stereo else 0.42
+    body_a = pitch * len(attrs) + 0.10 if attrs else 0.14
+    body_m = pitch * len(methods) + 0.10 if methods else 0.0
+    h = head + body_a + body_m
+    y = ytop - h
+    ax.add_patch(
+        Rectangle(
+            (x, y), w, h, facecolor="white", edgecolor=color, linewidth=1.3, zorder=2
+        )
+    )
+    ax.add_patch(
+        Rectangle(
+            (x, ytop - head),
+            w,
+            head,
+            facecolor=TINT[color],
+            edgecolor=color,
+            linewidth=1.3,
+            zorder=3,
+        )
+    )
+    if stereo:
+        ax.text(
+            x + w / 2,
+            ytop - 0.18,
+            f"«{stereo}»",
+            ha="center",
+            va="center",
+            fontsize=6.8 * FS,
+            color=MUTED,
+            style="italic",
+            zorder=4,
+        )
+    ax.text(
+        x + w / 2,
+        ytop - head + 0.21,
+        name,
+        ha="center",
+        va="center",
+        fontsize=(8.2 if len(name) <= 18 else 7.2) * FS,
+        fontweight="bold",
+        color=INK,
+        zorder=4,
+    )
+    yy = ytop - head - 0.05
+    for a in attrs:
+        ax.text(
+            x + 0.10,
+            yy - pitch / 2,
+            a,
+            ha="left",
+            va="center",
+            fontsize=6.9 * FS,
+            color=INK,
+            zorder=4,
+        )
+        yy -= pitch
+    yy = ytop - head - body_a
+    if methods:
+        ax.plot([x, x + w], [yy, yy], color=color, linewidth=1.0, zorder=4)
+        yy -= 0.05
+        for m in methods:
+            ax.text(
+                x + 0.10,
+                yy - pitch / 2,
+                m,
+                ha="left",
+                va="center",
+                fontsize=6.9 * FS,
+                color=INK,
+                zorder=4,
+            )
+            yy -= pitch
+    return (x, y, w, h)
+
+
+def _edge(geom, where):
+    x, y, w, h = geom
+    return {
+        "top": (x + w / 2, y + h),
+        "bottom": (x + w / 2, y),
+        "left": (x, y + h / 2),
+        "right": (x + w, y + h / 2),
+    }[where]
+
+
+def uml_link(ax, p1, p2, kind="assoc", label=None, lab_at=None, rad=0.0):
+    """kind: assoc (-->), realize (..|>), inherit (--|>), compose (◆--), depend (..>)."""
+    style = {
+        "assoc": "-|>",
+        "realize": "-|>",
+        "inherit": "-|>",
+        "compose": "-",
+        "depend": "-|>",
+    }[kind]
+    dashed = kind in ("realize", "depend")
+    hollow = kind in ("realize", "inherit")
+    patch = FancyArrowPatch(
+        p1,
+        p2,
+        arrowstyle=style,
+        mutation_scale=14 if hollow else 11,
+        connectionstyle=f"arc3,rad={rad}",
+        color=LINE,
+        linewidth=1.2,
+        linestyle="--" if dashed else "-",
+        zorder=1,
+        shrinkA=0,
+        shrinkB=0,
+    )
+    if hollow:
+        patch.set_facecolor("white")
+        patch.set_arrowstyle("-|>,head_length=0.55,head_width=0.35")
+    ax.add_patch(patch)
+    if kind == "compose":
+        ax.plot(*p1, marker="D", markersize=7, color=LINE, zorder=5)
+    if label:
+        lx, ly = lab_at if lab_at else ((p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2)
+        ax.text(
+            lx,
+            ly,
+            label,
+            ha="center",
+            va="center",
+            fontsize=6.8 * FS,
+            color=MUTED,
+            zorder=6,
+            bbox=dict(
+                boxstyle="round,pad=0.12",
+                facecolor="white",
+                edgecolor="none",
+                alpha=0.95,
+            ),
+        )
+
+
+def d8a_class_models():
+    fig, ax = canvas(15, 9.6, (0, 16.4), (0, 10.4))
+    title(
+        ax,
+        "Hình 3.6 — Biểu đồ lớp (a): phục vụ và huấn luyện mô hình",
+        "Lớp và quan hệ lấy từ mã nguồn services/inference và services/training "
+        "· ◆ = sở hữu · tam giác rỗng nét đứt = hiện thực giao diện",
+    )
+    band(ax, 0.20, 0.05, 9.55, 9.15, "services/inference", AQUA, label_at="bottom")
+    band(ax, 9.95, 0.05, 6.25, 9.15, "services/training", MAGENTA, label_at="bottom")
+
+    loader = uml_class(
+        ax,
+        0.40,
+        8.65,
+        4.45,
+        "ModelLoader",
+        ["- _cache: dict[(tên, version), LoadedModel]"],
+        [
+            "+ load(ticker, timeframe, model_name): LoadedModel",
+            "+ latest_version(registry_name): (version, run_id)",
+        ],
+        AQUA,
+    )
+    loaded = uml_class(
+        ax,
+        5.15,
+        8.65,
+        4.40,
+        "LoadedModel",
+        [
+            "+ predictor: Predictor",
+            "+ registry_name: str",
+            "+ version: int",
+            "+ run_id: str",
+        ],
+        (),
+        AQUA,
+        "dataclass",
+    )
+    uml_class(
+        ax,
+        0.40,
+        6.40,
+        4.45,
+        "RedisCache",
+        ["- client: Redis | None"],
+        ["+ get(key): Any | None", "+ set(key, value, ttl_seconds=300): bool"],
+        BLUE,
+    )
+    proto = uml_class(
+        ax,
+        5.15,
+        6.05,
+        4.40,
+        "Predictor",
+        (),
+        ["+ predict_steps(history, steps): list[float]"],
+        AQUA,
+        "Protocol",
+    )
+    xs, w = [0.40, 2.70, 5.00, 7.30], 2.20
+    preds = [
+        uml_class(
+            ax,
+            xs[0],
+            3.95,
+            w,
+            "XGBoostPredictor",
+            ["- model", "- scaler"],
+            ["+ predict_steps()"],
+            AQUA,
+        ),
+        uml_class(
+            ax,
+            xs[1],
+            3.95,
+            w,
+            "RandomForestPredictor",
+            ["- model"],
+            ["+ predict_steps()"],
+            AQUA,
+        ),
+        uml_class(
+            ax,
+            xs[2],
+            3.95,
+            w,
+            "GRUPredictor",
+            [
+                "- model: GRUForecaster",
+                "- feature_scaler",
+                "- target_scaler",
+                "- sequence_length",
+            ],
+            ["+ min_history_rows()", "+ predict_steps()"],
+            AQUA,
+        ),
+        uml_class(
+            ax,
+            xs[3],
+            3.95,
+            w,
+            "ArimaPredictor",
+            ["- results", "- history_end_ts"],
+            ["+ predict_steps()"],
+            AQUA,
+        ),
+    ]
+    gru_inf = uml_class(
+        ax,
+        5.00,
+        1.40,
+        2.20,
+        "GRUForecaster",
+        (),
+        ["+ forward(inputs)"],
+        AQUA,
+        "nn.Module",
+    )
+
+    uml_link(
+        ax,
+        _edge(loader, "right"),
+        _edge(loaded, "left"),
+        "compose",
+        "0..*",
+        lab_at=(4.97, 7.62),
+    )
+    uml_link(ax, _edge(loaded, "bottom"), _edge(proto, "top"), "assoc", "1")
+    px, _, pw, _ = proto
+    for i, g in enumerate(preds):
+        target = (px + pw * (0.2 + 0.2 * i), proto[1])
+        uml_link(ax, _edge(g, "top"), target, "realize")
+    uml_link(ax, _edge(preds[2], "bottom"), _edge(gru_inf, "top"), "assoc")
+
+    uml_class(
+        ax,
+        10.15,
+        8.65,
+        2.90,
+        "XGBoostModelWrapper",
+        ["- model: XGBRegressor", "- explainer"],
+        [
+            "+ fit()",
+            "+ predict(X)",
+            "+ calculate_shap_values(X)",
+            "+ get_feature_importances()",
+        ],
+        MAGENTA,
+    )
+    uml_class(
+        ax,
+        13.15,
+        8.65,
+        2.90,
+        "RandomForestModelWrapper",
+        ["- model: RandomForestRegressor", "- explainer"],
+        [
+            "+ fit(X, y)",
+            "+ predict(X)",
+            "+ calculate_shap_values(X)",
+            "+ get_feature_importances()",
+        ],
+        MAGENTA,
+    )
+    uml_class(
+        ax,
+        10.15,
+        5.30,
+        2.90,
+        "ARIMABaseline",
+        ["- order: (p, d, q)"],
+        [
+            "+ fit(prices)",
+            "+ forecast_one()",
+            "+ update(actual_close)",
+            "+ snapshot()",
+            "+ coefficient_table()",
+        ],
+        MAGENTA,
+    )
+    gru = uml_class(
+        ax,
+        13.15,
+        5.30,
+        2.90,
+        "GRUForecaster",
+        ["+ input_size, hidden_size", "+ num_layers, dropout"],
+        ["+ forward(inputs)", "+ get_config()"],
+        MAGENTA,
+        "nn.Module",
+    )
+    cfg = uml_class(
+        ax,
+        13.15,
+        2.60,
+        2.90,
+        "GRUTrainingConfig",
+        [
+            "sequence_length = 7",
+            "hidden_size = 64",
+            "batch_size = 16",
+            "max_epochs = 100, patience = 20",
+        ],
+        (),
+        MAGENTA,
+        "dataclass",
+    )
+    uml_link(ax, _edge(cfg, "top"), _edge(gru, "bottom"), "depend", "cấu hình")
+    ax.text(
+        10.15,
+        1.95,
+        "Mỗi wrapper được một entrypoint\ntrain_*.py dùng; artifact và\n"
+        "artifact giải thích được ghi vào\nMLflow, rồi ModelLoader nạp lại\n"
+        "phiên bản mới nhất để phục vụ.",
+        ha="left",
+        va="top",
+        fontsize=6.9 * FS,
+        color=MUTED,
+        linespacing=1.35,
+    )
+    elbow(
+        ax,
+        [(11.60, 8.65), (11.60, 9.00), (2.62, 9.00), (2.62, 8.65)],
+        "artifact + kết quả giải thích qua MLflow Registry",
+        (7.10, 9.00),
+        dashed=True,
+    )
+    save(fig, "d8a_bieu_do_lop_mo_hinh.png")
+
+
+def d8b_class_data():
+    fig, ax = canvas(15, 9.6, (0, 16.4), (0, 10.4))
+    title(
+        ax,
+        "Hình 3.7 — Biểu đồ lớp (b): thu thập dữ liệu và thành phần dùng chung",
+        "Lớp và quan hệ lấy từ mã nguồn services/ingestion và shared "
+        "· tam giác rỗng = kế thừa · nét đứt = phụ thuộc",
+    )
+    band(ax, 0.20, 0.25, 6.70, 9.15, "services/ingestion", ORANGE)
+    band(ax, 7.10, 0.25, 9.10, 9.15, "shared", BLUE)
+
+    tasks = uml_class(
+        ax,
+        0.40,
+        8.65,
+        6.30,
+        "tasks.py",
+        (),
+        [
+            "+ ingest_crypto_task(symbols, resolution='1h'): int",
+            "+ ingest_stocks_task(symbols, resolution='1d'): int",
+            "+ clean_and_store_task(symbol_id, timeframe): dict",
+        ],
+        ORANGE,
+        "module — Celery task",
+    )
+    binance = uml_class(
+        ax,
+        0.40,
+        6.35,
+        3.05,
+        "BinanceAdapter",
+        ["- exchange: ccxt.binance"],
+        ["+ fetch_historical_ohlcv()", "+ close()"],
+        ORANGE,
+    )
+    vn = uml_class(
+        ax,
+        3.65,
+        6.35,
+        3.05,
+        "VNStockAdapter",
+        ["- _vnstock (tùy chọn)"],
+        ["+ available(): bool", "+ fetch_historical_ohlcv()"],
+        ORANGE,
+    )
+    uml_class(
+        ax,
+        0.40,
+        4.70,
+        3.05,
+        "CleaningReport",
+        [
+            "+ input_rows, output_rows",
+            "+ duplicates_removed",
+            "+ missing_filled",
+            "+ outliers_flagged",
+        ],
+        ["+ to_dict()"],
+        ORANGE,
+        "dataclass",
+    )
+    uml_class(
+        ax,
+        3.65,
+        4.70,
+        3.05,
+        "CleaningConfig",
+        ["CLEANING_FFILL_LIMIT", "CLEANING_IQR_MULTIPLIER"],
+        (),
+        ORANGE,
+        "BaseSettings",
+    )
+    uml_class(
+        ax,
+        0.40,
+        2.30,
+        6.30,
+        "SchedulerSettings",
+        [
+            "INGEST_CRYPTO_SYMBOLS, INGEST_STOCK_SYMBOLS",
+            "CLEAN_STOCK_HOUR_UTC, CLEAN_STAGGER_INTERVAL_MINS",
+        ],
+        (),
+        ORANGE,
+        "BaseSettings",
+    )
+    uml_link(ax, (1.90, tasks[1]), _edge(binance, "top"), "depend")
+    uml_link(ax, (5.20, tasks[1]), _edge(vn, "top"), "depend")
+    elbow(
+        ax,
+        [(0.40, 7.20), (0.30, 7.20), (0.30, 3.90), (0.40, 3.90)],
+        dashed=True,
+    )
+    ax.text(
+        0.34,
+        5.30,
+        "trả về",
+        rotation=90,
+        ha="left",
+        va="center",
+        fontsize=6.6 * FS,
+        color=MUTED,
+    )
+
+    uml_class(
+        ax,
+        7.30,
+        8.65,
+        4.20,
+        "Settings",
+        [
+            "DATABASE_URL, REDIS_URL",
+            "MLFLOW_TRACKING_URI",
+            "API_KEY_SECRET",
+            "RATE_LIMIT_PER_MINUTE = 60",
+            "/database_url_sync: str",
+        ],
+        (),
+        BLUE,
+        "BaseSettings",
+    )
+    base = uml_class(ax, 12.10, 8.65, 3.90, "Base", (), (), BLUE, "DeclarativeBase")
+    exch = uml_class(ax, 11.70, 6.80, 2.10, "Exchange", ["id, code, name"], (), BLUE)
+    sym = uml_class(
+        ax, 14.05, 6.80, 2.00, "Symbol", ["id, ticker", "asset_class"], (), BLUE
+    )
+    mlm = uml_class(ax, 11.70, 5.30, 2.10, "MLModel", ["id, name, family"], (), BLUE)
+    mv = uml_class(
+        ax, 14.05, 5.30, 2.00, "ModelVersion", ["mlflow_run_id", "stage"], (), BLUE
+    )
+    uml_class(
+        ax,
+        11.70,
+        3.95,
+        4.35,
+        "DataQualityCheck",
+        ["symbol_id, check_name, passed, detail"],
+        (),
+        BLUE,
+    )
+    for g in (exch,):
+        uml_link(ax, _edge(g, "top"), _edge(base, "bottom"), "inherit")
+    uml_link(ax, _edge(exch, "right"), _edge(sym, "left"), "assoc", "1 — *")
+    uml_link(ax, _edge(mlm, "right"), _edge(mv, "left"), "assoc", "1 — *")
+    ax.text(
+        16.00,
+        2.98,
+        "Mọi lớp ORM (Symbol, MLModel, …) đều kế thừa Base;\nmột số lớp ml.* được lược bớt",
+        ha="right",
+        va="top",
+        fontsize=6.6 * FS,
+        color=MUTED,
+    )
+
+    uml_class(
+        ax,
+        7.30,
+        5.70,
+        4.20,
+        "PredictRequest",
+        [
+            "ticker_id: str",
+            "model_name: arima|xgboost|…",
+            "steps: 1..30",
+            "timeframe: 1d | 1h | None",
+        ],
+        ["+ validate_model_name()", "+ validate_timeframe()"],
+        BLUE,
+        "pydantic",
+    )
+    resp = uml_class(
+        ax,
+        7.30,
+        2.25,
+        2.00,
+        "PredictResponse",
+        ["ticker_id, model_name", "predictions"],
+        (),
+        BLUE,
+        "pydantic",
+    )
+    item = uml_class(
+        ax,
+        9.50,
+        2.25,
+        2.00,
+        "PredictionItem",
+        ["target_time", "predicted_value"],
+        (),
+        BLUE,
+        "pydantic",
+    )
+    exr = uml_class(
+        ax,
+        11.70,
+        2.25,
+        2.10,
+        "ExplainResponse",
+        ["method, features", "baseline_rmse, order"],
+        (),
+        BLUE,
+        "pydantic",
+    )
+    exf = uml_class(
+        ax,
+        14.05,
+        2.25,
+        2.00,
+        "ExplainFeature",
+        ["feature, importance", "p_value, …"],
+        (),
+        BLUE,
+        "pydantic",
+    )
+    uml_link(ax, _edge(resp, "right"), _edge(item, "left"), "compose", "1..*")
+    uml_link(ax, _edge(exr, "right"), _edge(exf, "left"), "compose", "1..*")
+    uml_link(
+        ax,
+        (tasks[0] + tasks[2], 8.20),
+        (7.30, 8.20),
+        "depend",
+        "cấu hình",
+        lab_at=(7.00, 8.42),
+    )
+    save(fig, "d8b_bieu_do_lop_du_lieu.png")
 
 
 if __name__ == "__main__":
@@ -1220,3 +1860,5 @@ if __name__ == "__main__":
     d5_usecase()
     d6_cicd()
     d7_mlops()
+    d8a_class_models()
+    d8b_class_data()
