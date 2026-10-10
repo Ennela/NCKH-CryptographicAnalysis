@@ -172,7 +172,7 @@ Nguồn: truy vấn trực tiếp `ops.job_log` trên DB local.
 | Bảng có dữ liệu | `market.*` 4/4; `ops.job_log`, `ops.data_quality_check`; nhóm `ml.*` 0/8 (chưa có luồng ghi) | truy vấn DB |
 | Dữ liệu khóa (snapshot) | 192 740 dòng OHLCV, 25 mã (15 cổ phiếu VN + 10 crypto) | `data/snapshots/ohlcv_full_current/manifest.json` |
 | Dữ liệu trong DB sau backfill | `market.ohlcv` 213 164 dòng | truy vấn DB |
-| MLflow | 36 model đăng ký; 135 run trong 39 experiment | MLflow API |
+| MLflow | 36 model đăng ký; 149 run trong 39 experiment (gồm 81 run ablation; đếm ngày 10/10) | MLflow API |
 | Pull Request đã merge | 57 (đến PR #66) | `gh pr list --state merged` |
 
 ---
