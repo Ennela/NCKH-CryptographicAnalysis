@@ -12,7 +12,7 @@
 | Tiêu chí | Yêu cầu | Hiện trạng (09/10/2026) | Đánh giá | Nguồn |
 |---|---|---|---|---|
 | Thu thập tự động | Chạy theo lịch, có log | Celery Beat + Worker, log ở `ops.job_log`. Ingest 29/29 thành công. Clean 31/46 thành công trước khi sửa lỗi kết nối (mục 6). Cổ phiếu VN tạm dừng vì `vnstock` bị PyPI cách ly | Đạt (crypto); cổ phiếu tạm dừng | §6 |
-| Độ tin cậy thu thập (NFR-08) | Tỷ lệ job thành công ≥ 95 % trong ≥ 24 giờ | 60/75 = 80 % (16/09–05/10); đã sửa nguyên nhân (PR #67); đang chạy lại 24 giờ từ 09/10 21:58 giờ VN | **Chưa đạt** — chờ số đo lại | §6 |
+| Độ tin cậy thu thập (NFR-08) | Tỷ lệ job thành công ≥ 95 % trong ≥ 24 giờ | Trước khi sửa: 60/75 = 80 % (16/09–05/10). Sau khi sửa (PR #67): 450/450 = 100 % trong 21 giờ 36 phút chạy liên tục (09/10 21:58 → 10/10 19:34) | **Đạt về tỷ lệ, chưa đủ 24 giờ** | §6 |
 | Web App | ≥ 5 màn hình | 5 màn hình: Tổng quan, Dữ liệu & Phân tích, Dự báo AI, Giải thích mô hình, Thu thập & Làm sạch | **Đạt** | PR #51, #64; ảnh `docs/evidence/screenshots/ui/` |
 | API dự báo | p95 ≤ 2 giây | p95 khi model chạy ≤ 0,68 s, khi trúng cache ≤ 0,04 s (cả 4 mô hình) | **Đạt** | §3; PR #66 |
 | Bảo mật tối thiểu | API key, rate limit, kiểm tra đầu vào | Đủ 3 lớp; rate limit đã sửa (PR #65) | Đạt (rủi ro: API key lộ qua `NEXT_PUBLIC_API_KEY`) | `docs/api.md` |
@@ -142,6 +142,7 @@ Nguồn: truy vấn trực tiếp `ops.job_log` trên DB local.
 | Vận hành 16/09 – 05/10 | clean | 31 | 4 | 11 |
 
 - Tỷ lệ thành công tổng: 60/75 = 80 %. Riêng ingest: 100 %; riêng clean: 67 %.
+- **Đo lại sau khi sửa** (09/10 21:58 → 10/10 19:34 giờ VN, 21 giờ 36 phút liên tục, 22/22 khung giờ có job): ingest 230/230 (ghi 5 580 dòng), clean 220/220 → **450/450 = 100 %**. Dừng trước mốc 24 giờ theo quyết định của nhóm nên NFR-08 chỉ ghi "đạt về tỷ lệ".
 - Nguyên nhân lỗi clean: tiến trình con của Celery (prefork) dùng chung kết nối Postgres của
   tiến trình cha. Đã tái hiện (20 tác vụ đồng thời: 15/20 rồi 12/20 thành công) và sửa (20/20
   ở cả 2 lần chạy): **PR #67**.
