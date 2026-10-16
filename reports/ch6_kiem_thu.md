@@ -46,7 +46,16 @@ Số liệu đọc trực tiếp từ bảng `ops.job_log` (mỗi job ghi trạn
 
 - Tỷ lệ thành công: **60/75 = 80 %** (ingest 100 %, clean 67 %) → **chưa đạt** tiêu chí ≥ 95 %.
 - Nguyên nhân: Celery worker chạy prefork, các tiến trình con dùng chung kết nối Postgres của tiến trình cha nên tác vụ clean chạy đồng thời làm hỏng giao dịch của nhau. Đã tái hiện (20 tác vụ đồng thời: 15/20 và 12/20 thành công) và sửa (20/20 ở cả 2 lần chạy) ở PR #67.
-- Đo lại sau khi sửa: pipeline chạy liên tục từ 09/10/2026 21:58 (giờ VN) để đo đủ 24 giờ — **chưa có kết quả** tại thời điểm cập nhật.
+- Đo lại sau khi sửa (code `develop` + PR #67, container `nckh-run-worker` / `nckh-run-beat`): chạy liên tục từ **09/10/2026 21:58 đến 10/10/2026 19:34** (giờ VN) = **21 giờ 36 phút**, không container nào khởi động lại, mọi khung giờ đều có job (22/22 giờ).
+
+| Loại job | Thành công | Thất bại | Kẹt ở `running` |
+|---|---:|---:|---:|
+| ingest (thu thập) | 230 (ghi 5 580 dòng) | 0 | 0 |
+| clean (làm sạch) | 220 | 0 | 0 |
+
+- Kết quả: **450/450 = 100 %** job thành công. Phép đo dừng ở 21 giờ 36 phút theo quyết định của nhóm, **chưa đủ điều kiện "≥ 24 giờ"** của NFR-08 → ghi là *đạt về tỷ lệ, chưa đủ thời lượng*.
+- Lưu ý khi đọc: job clean báo 0 dòng xử lý vì job ingest crypto đã kiểm định và ghi thẳng bảng sạch, còn cổ phiếu không có dữ liệu mới (`vnstock` bị PyPI cách ly) — con số đo độ tin cậy của job, không đo khối lượng dữ liệu được làm sạch.
+- Truy vấn kiểm chứng: `select job_type, status, count(*) from ops.job_log where started_at >= '2026-10-09 14:58:02+00' and started_at < '2026-10-10 12:34:33+00' group by 1, 2;`
 - Số liệu cũ ("11 thành công, 0 thất bại, 100 %") lấy từ log container trong một khoảng ngắn, không khớp `ops.job_log` nên đã được thay.
 
 **(e) Bảo mật**

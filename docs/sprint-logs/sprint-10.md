@@ -21,7 +21,7 @@
 | #S10-03 | Ennela | Đo p95 `POST /api/v1/predict` cho 4 mô hình (RQ5). | `[x]` | PR #66 merge 09/10. p95 khi model chạy ≤ 0,68 s → đạt tiêu chí ≤ 2 s. |
 | #S10-04 | Ennela | Thí nghiệm ablation nhóm đặc trưng GRU trên 9 chuỗi (3 biến thể × 3 seed = 81 run). | `[x]` | PR #68 mở 09/10. |
 | #S10-05 | Ennela | Sửa lỗi Celery worker dùng chung kết nối DB sau khi fork (job clean lỗi/kẹt). | `[x]` | PR #67 mở 09/10. Tái hiện: 15/20 và 12/20 → 20/20 sau khi sửa. |
-| #S10-06 | Ennela | Đo NFR-08 (tỷ lệ job thành công ≥ 95 %) trong 24 giờ trên code đã sửa. | `[~]` | Bắt đầu 09/10 21:58 (giờ VN). |
+| #S10-06 | Ennela | Đo NFR-08 (tỷ lệ job thành công ≥ 95 %) trên code đã sửa. | `[x]` | 09/10 21:58 → 10/10 19:34: 450/450 job thành công trong 21 giờ 36 phút; dừng trước mốc 24 giờ theo quyết định của nhóm. |
 | #S10-07 | Ennela | Chốt nhật ký sprint 9, chụp lại ảnh trang Giải thích (4 mô hình), sửa số liệu Chương 6, tài liệu tổng hợp số liệu cuối kỳ. | `[x]` | PR tài liệu 09/10. |
 
 **Số liệu tại 09/10 (trước các PR mở cùng ngày):** 9 commit · 1 tác giả · 7 PR mở · 7 PR merge · 0 issue đóng.
@@ -49,3 +49,8 @@ merge trước khi có review.
     Chương 6. Tìm ra nguyên nhân (kết nối DB dùng chung sau khi fork), tái hiện, sửa, mở PR #67.
 *   Khởi động pipeline thu thập trên code đã sửa để đo NFR-08 đủ 24 giờ.
 *   Soạn `reports/TONG_HOP_SO_LIEU_CUOI_KY.md` (số liệu kèm nguồn cho báo cáo cuối kỳ).
+
+### Ngày 10/10/2026
+*   Dừng phép đo NFR-08 lúc 19:34 (21 giờ 36 phút, 450/450 job thành công).
+*   Sửa 7 hình thiết kế bị chồng chữ hoặc ghi sai so với hệ thống hiện tại; thêm 2 hình biểu đồ lớp.
+*   Soạn tệp DOCX tổng hợp các thay đổi cho báo cáo.
