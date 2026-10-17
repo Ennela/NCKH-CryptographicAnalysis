@@ -150,6 +150,10 @@ API mở cho mọi người.
 - 80 request đồng thời: nginx cho qua 41, trả 429 cho 39; `/explain` vượt
   khoảng 60 lượt/phút bị inference trả 429.
 - Tạo lại container inference: nginx tự theo IP mới, không 502.
+- Quick tunnel (`--profile tunnel`): có địa chỉ `trycloudflare.com` sau vài
+  giây; qua địa chỉ đó trang web, `/api/v1/*` và nút "Tiến hành dự báo" đều chạy;
+  inference ghi nhận IP công khai thật của người xem (từ `CF-Connecting-IP`).
+  Sau `stop cloudflared` địa chỉ trả 530.
 
 ## 8. Vận hành
 
