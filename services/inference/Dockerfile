@@ -16,7 +16,13 @@ RUN pip install --no-cache-dir -e /app/shared
 
 # Copy inference service files
 COPY services/inference /app/services/inference
-RUN pip install --no-cache-dir -r /app/services/inference/requirements.txt
+# Install requirements with CPU-only torch, as the training image does: the
+# default PyPI wheel bundles CUDA libraries (~10 GB image) that inference never uses.
+RUN pip install --no-cache-dir -r /app/services/inference/requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
+
+# `import shared...` resolves from /app (the editable install above exposes no
+# top-level `shared` package). docker-compose.yml sets the same for dev.
+ENV PYTHONPATH=/app
 
 WORKDIR /app/services/inference
 

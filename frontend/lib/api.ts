@@ -6,7 +6,9 @@
  * so pages can render honest error states instead of silent fallbacks.
  */
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+// `??`, not `||`: an empty NEXT_PUBLIC_API_URL means "same origin" (the
+// production build behind nginx calls /api/v1/... on its own host).
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "generate_a_secure_long_random_string_here";
 
 /** Error thrown when the API responds with a non-2xx status. */

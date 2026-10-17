@@ -52,7 +52,7 @@ NCKH/
 │
 ├── infra/
 │   ├── postgres/init.sql             # Khởi tạo DB, TimescaleDB, Hypertables
-│   └── nginx/nginx.conf              # Reverse Proxy cho Production
+│   └── nginx/templates/              # Reverse Proxy cho Production (xem docs/deploy.md)
 │
 ├── configs/
 │   └── group_dataset.json            # Contract dataset chính thức cho XGBoost

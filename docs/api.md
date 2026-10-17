@@ -33,6 +33,13 @@ X-API-Key: your-secure-api-key-here
     `429 Too Many Requests`; sang phút mới bộ đếm bắt đầu lại. Nếu Redis không
     chạy, rate limit được bỏ qua (thiết kế fail-open).
 *   `GET /health` KHÔNG yêu cầu API key (phục vụ Docker/K8s healthcheck).
+*   **Khi chạy bằng `docker-compose.prod.yml`** (sau nginx): trình duyệt gọi
+    `/api/v1/*` cùng tên miền và **nginx tự gắn `X-API-Key`** (thay mọi khóa
+    client gửi), nên khóa không nằm trong mã JavaScript. IP dùng cho rate limit là
+    IP người xem do nginx chuyển qua `X-Forwarded-For` (uvicorn chạy
+    `--proxy-headers`); nginx còn giới hạn chung 10 request/giây/IP (burst 40) cho
+    toàn bộ `/api/v1/`. Hệ quả: API qua nginx mở cho người xem web, chỉ được bảo
+    vệ bằng giới hạn tần suất. Xem `docs/deploy.md`.
 
 ---
 
