@@ -72,8 +72,9 @@ jobs:
           file: frontend/Dockerfile
           target: prod
           push: true
+          # Empty = same origin behind nginx (lib/api.ts adds /api/v1 itself).
           build-args: |
-            NEXT_PUBLIC_API_URL=/api/v1
+            NEXT_PUBLIC_API_URL=
           tags: |
             ghcr.io/${{ steps.repo.outputs.name }}/frontend:latest
             ghcr.io/${{ steps.repo.outputs.name }}/frontend:${{ github.sha }}
