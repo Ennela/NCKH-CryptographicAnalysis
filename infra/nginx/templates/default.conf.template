@@ -40,6 +40,15 @@ server {
         proxy_cache_bypass $http_upgrade;
     }
 
+    # The "Vận hành" page asks for the inference liveness at /health (outside
+    # /api/v1, no API key). Without this it falls through to the frontend: 404.
+    location = /health {
+        set $inference_upstream inference:8000;
+        proxy_pass http://$inference_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+    }
+
     location /api/v1/ {
         limit_req zone=api_per_ip burst=40 nodelay;
 
