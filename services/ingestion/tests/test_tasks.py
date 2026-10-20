@@ -18,6 +18,7 @@ Chạy:
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 from unittest.mock import patch
 
 import pytest
@@ -25,6 +26,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
 from services.ingestion.tasks import clean_and_store_task, ingest_stocks_task
+from shared.schemas.ohlcv import OHLCVCreate
 from shared.db.repositories.market_repo import (
     clear_caches,
     ensure_exchange,
@@ -171,26 +173,86 @@ class TestCleanAndStoreTask:
 
 
 class TestIngestStocksTask:
-    """ingest_stocks_task khi thiếu gói tùy chọn vnstock."""
+    """ingest_stocks_task với nguồn Vietcap (mạng được mock)."""
 
-    @patch("services.ingestion.tasks.VNStockAdapter")
-    def test_missing_vnstock_marks_job_skipped(self, mock_adapter_cls, db) -> None:
-        """Không có vnstock → job ghi 'skipped' kèm lý do, không phải 'success'."""
-        mock_adapter_cls.return_value.available = False
+    @staticmethod
+    def _job(db, ticker: str):
+        return db.execute(
+            text(
+                "SELECT j.status, j.rows_affected, j.error_message "
+                "FROM ops.job_log j JOIN market.symbol s ON s.id = j.symbol_id "
+                "WHERE s.ticker = :ticker ORDER BY j.started_at DESC LIMIT 1"
+            ),
+            {"ticker": ticker},
+        ).fetchone()
+
+    @patch("services.ingestion.tasks.VietcapAdapter")
+    def test_no_data_marks_job_failed(self, mock_adapter_cls, db) -> None:
+        """Vietcap không trả dữ liệu → job 'failed' kèm lý do, không phải 'success'."""
+        mock_adapter_cls.return_value.fetch_historical_ohlcv.return_value = []
         ticker = f"T{uuid.uuid4().hex[:6].upper()}"
 
         assert ingest_stocks_task([ticker], "1d") == 0
 
-        job = db.execute(
-            text(
-                "SELECT j.status, j.rows_affected, j.error_message "
-                "FROM ops.job_log j JOIN market.symbol s ON s.id = j.symbol_id "
-                "WHERE s.ticker = :ticker"
-            ),
-            {"ticker": ticker},
-        ).fetchone()
-        assert job is not None
-        assert job[0] == "skipped"
+        job = self._job(db, ticker)
+        assert job[0] == "failed"
         assert job[1] == 0
-        assert "vnstock" in job[2]
-        mock_adapter_cls.return_value.fetch_historical_ohlcv.assert_not_called()
+        assert "Vietcap" in job[2]
+
+    @patch("services.ingestion.tasks.VietcapAdapter")
+    def test_new_adjustment_refetches_whole_history(self, mock_adapter_cls, db) -> None:
+        """Giá ngày trùng lệch > 0,5 % → lấy lại từ ngày đầu tiên đã lưu."""
+        ticker = f"T{uuid.uuid4().hex[:6].upper()}"
+        eid = ensure_exchange(db, "HOSE", "HOSE", "stock", "Asia/Ho_Chi_Minh")
+        sid = ensure_symbol(db, eid, ticker, "stock", "vnstock")
+        first, overlap = (
+            datetime(2026, 7, 1, tzinfo=timezone.utc),
+            datetime(2026, 10, 1, tzinfo=timezone.utc),
+        )
+        for ts in (first, overlap):
+            db.execute(
+                text(
+                    "INSERT INTO market.ohlcv (symbol_id, timeframe, ts, open, high, low, close, volume) "
+                    "VALUES (:sid, '1d', :ts, 100, 100, 100, 100, 1)"
+                ),
+                {"sid": sid, "ts": ts},
+            )
+        db.flush()
+
+        def candle(ts: datetime, price: float) -> OHLCVCreate:
+            return OHLCVCreate(
+                timestamp=ts,
+                ticker_id=ticker,
+                resolution="1d",
+                open=price,
+                high=price,
+                low=price,
+                close=price,
+                volume=1,
+            )
+
+        adapter = mock_adapter_cls.return_value
+        adapter.fetch_historical_ohlcv.side_effect = [
+            [candle(overlap, 90.0)],  # recent window, re-adjusted by 10 %
+            [candle(first, 90.0), candle(overlap, 90.0)],  # whole history
+        ]
+
+        ingest_stocks_task([ticker], "1d")
+
+        assert adapter.fetch_historical_ohlcv.call_count == 2
+        assert (
+            adapter.fetch_historical_ohlcv.call_args.kwargs["start_date"]
+            == first.date()
+        )
+        closes = (
+            db.execute(
+                text(
+                    "SELECT close FROM market.ohlcv WHERE symbol_id = :sid ORDER BY ts"
+                ),
+                {"sid": sid},
+            )
+            .scalars()
+            .all()
+        )
+        assert [float(c) for c in closes] == [90.0, 90.0]
+        assert self._job(db, ticker)[0] == "success"
