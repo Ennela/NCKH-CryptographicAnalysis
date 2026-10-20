@@ -3,8 +3,8 @@ uvicorn>=0.22.0
 celery>=5.3.0
 redis>=4.6.0
 ccxt>=4.0.0
-# vnstock is sometimes installed from git for latest features
-vnstock>=2.0.0
+# vnstock is OPTIONAL: PyPI quarantined it on 2026-09 (and removed its `vnai`
+# dependency), so it lives in requirements-vnstock.txt. See docs/dataset.md.
 pandas>=2.0.0
 numpy>=1.24.0
 # shared is installed separately (see Dockerfile or `pip install -e ./shared` from repo root)

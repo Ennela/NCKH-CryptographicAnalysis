@@ -9,6 +9,7 @@ from typing import Any
 import joblib
 import numpy as np
 import pandas as pd
+import shap
 from sklearn.ensemble import RandomForestRegressor
 
 logger = logging.getLogger(__name__)
@@ -34,11 +35,13 @@ class RandomForestModelWrapper:
     def __init__(self, params: dict[str, Any] | None = None) -> None:
         self.params = dict(DEFAULT_RANDOM_FOREST_PARAMS if params is None else params)
         self.model = RandomForestRegressor(**self.params)
+        self.explainer: Any = None
 
     def fit(self, X: pd.DataFrame, y: pd.Series) -> None:
         """Fits the regressor to the feature matrix and target."""
         logger.info("Training Random Forest Regressor...")
         self.model.fit(X, y)
+        self.explainer = None
 
     def predict(self, X: pd.DataFrame) -> np.ndarray:
         """Predict target values."""
@@ -55,6 +58,7 @@ class RandomForestModelWrapper:
             raise TypeError("Serialized artifact is not a RandomForestRegressor.")
         self.model = loaded_model
         self.params = dict(self.model.get_params())
+        self.explainer = None
 
     def get_params(self) -> dict[str, Any]:
         """Return live estimator hyperparameters."""
@@ -64,3 +68,13 @@ class RandomForestModelWrapper:
         """Returns Gini/Mean Decrease Impurity feature importances."""
         importances = self.model.feature_importances_
         return dict(zip(feature_names, [float(val) for val in importances]))
+
+    def calculate_shap_values(self, X: pd.DataFrame) -> np.ndarray:
+        """Return SHAP values (n_samples, n_features) for X via TreeExplainer.
+
+        The explainer is built lazily on first use and reset whenever the
+        estimator is refit or reloaded, so it always matches the live forest.
+        """
+        if self.explainer is None:
+            self.explainer = shap.TreeExplainer(self.model)
+        return np.asarray(self.explainer.shap_values(X), dtype=np.float64)

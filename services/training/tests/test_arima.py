@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import json
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -647,11 +649,20 @@ def test_training_logs_pre_test_model_and_preserves_run_id(
         captured["output_run_id"] = args[7]
         captured["output_predictions"] = np.asarray(args[5], dtype=np.float64)
 
+    def fake_log_explainability_artifact(run_id: str, model: Any) -> None:
+        captured["explain_run_id"] = run_id
+        captured["explain_model"] = model
+
     monkeypatch.setattr(train_arima, "log_training_run", fake_log_training_run)
     monkeypatch.setattr(
         train_arima,
         "_write_and_log_outputs",
         fake_write_and_log_outputs,
+    )
+    monkeypatch.setattr(
+        train_arima,
+        "_log_explainability_artifact",
+        fake_log_explainability_artifact,
     )
     run_id = train_arima.run_training(
         train_arima.parse_args(
@@ -690,9 +701,102 @@ def test_training_logs_pre_test_model_and_preserves_run_id(
         len(captured["output_predictions"]) == 4,
         "Training changed the synthetic test prediction count",
     )
+    _require(
+        captured["explain_run_id"] == run_id
+        and captured["explain_model"] is logged_model,
+        "Coefficients must come from the logged pre-test model and run",
+    )
 
 
 @pytest.mark.parametrize("bad_value", [np.nan, np.inf, -np.inf])
 def test_model_wrapper_rejects_non_finite_history(bad_value: float) -> None:
     with pytest.raises(ValueError, match="finite values"):
         ARIMABaseline().fit([1.0, 2.0, 3.0, bad_value])
+
+
+def _ar1_prices(phi: float = 0.6, length: int = 400) -> np.ndarray:
+    """Integrated AR(1) series: price differences follow d_t = phi * d_{t-1} + e."""
+    rng = np.random.default_rng(42)
+    differences = np.zeros(length)
+    for index in range(1, length):
+        differences[index] = phi * differences[index - 1] + rng.normal()
+    return 100.0 + np.cumsum(differences)
+
+
+def test_coefficient_table_recovers_the_ar_term() -> None:
+    model = ARIMABaseline(1, 1, 0).fit(_ar1_prices(phi=0.6))
+    table = {row["name"]: row for row in model.coefficient_table()}
+
+    _require(set(table) == {"ar.L1", "sigma2"}, f"Unexpected params: {set(table)}")
+    _require(
+        abs(float(table["ar.L1"]["coefficient"]) - 0.6) < 0.1,
+        "ARIMA(1,1,0) did not recover the simulated AR coefficient",
+    )
+    p_value = table["ar.L1"]["p_value"]
+    _require(p_value is not None and p_value < 0.01, "AR term should be significant")
+
+
+def test_coefficient_table_maps_non_finite_errors_to_none() -> None:
+    model = ARIMABaseline().fit(np.linspace(10.0, 20.0, 24))
+    fitted = SimpleNamespace(
+        model=SimpleNamespace(param_names=["ar.L1", "ma.L1", "sigma2"]),
+        params=np.array([0.5, -0.2, 1.0]),
+        bse=np.array([0.1, np.nan, 0.3]),
+        pvalues=np.array([0.01, np.nan, np.inf]),
+    )
+    model._model_fit = fitted  # type: ignore[assignment]
+
+    rows = model.coefficient_table()
+
+    _require(rows[1]["std_error"] is None, "NaN std_error must become None")
+    _require(rows[2]["p_value"] is None, "Inf p-value must become None")
+    _require(rows[0]["p_value"] == 0.01, "Finite p-values must be preserved")
+
+
+def test_explainability_payload_structure() -> None:
+    model = ARIMABaseline().fit(_ar1_prices())
+    payload = train_arima.build_explainability_payload(model)
+
+    _require(payload["method"] == "arima_coefficients", "Wrong method label")
+    _require(payload["model"] == train_arima.MODEL_NAME, "Wrong model label")
+    _require(payload["order"] == [1, 1, 1], "Order must be recorded")
+    _require(
+        payload["feature_list"] == ["ar.L1", "ma.L1", "sigma2"],
+        f"Unexpected parameter list: {payload['feature_list']}",
+    )
+    for item in payload["features"]:
+        _require(
+            item["importance"] == abs(item["coefficient"]),
+            "Importance must be the absolute coefficient",
+        )
+    json.dumps(payload, allow_nan=False)
+
+
+def test_explainability_artifact_is_logged_to_the_training_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import mlflow
+
+    started: list[str] = []
+    logged: dict[str, Any] = {}
+
+    @contextmanager
+    def fake_start_run(*, run_id: str) -> Iterator[None]:
+        started.append(run_id)
+        yield
+
+    def fake_log_dict(payload: dict[str, Any], artifact_file: str) -> None:
+        logged[artifact_file] = payload
+
+    monkeypatch.setattr(mlflow, "start_run", fake_start_run)
+    monkeypatch.setattr(mlflow, "log_dict", fake_log_dict)
+
+    train_arima._log_explainability_artifact(
+        "run-1", ARIMABaseline().fit(_ar1_prices())
+    )
+
+    _require(started == ["run-1"], "Artifact attached to the wrong run")
+    _require(
+        list(logged) == [train_arima.EXPLAIN_ARTIFACT_NAME],
+        "Coefficient artifact path changed",
+    )

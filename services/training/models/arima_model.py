@@ -157,3 +157,37 @@ class ARIMABaseline:
         except Exception:
             logger.exception("Failed to append an observed close to ARIMA history.")
             raise
+
+    def coefficient_table(self) -> list[dict[str, float | None]]:
+        """Return each estimated parameter with its standard error and p-value.
+
+        Output: one dict per statsmodels parameter (e.g. ar.L1, ma.L1, sigma2)
+        with keys name, coefficient, std_error, p_value. A standard error or
+        p-value that statsmodels could not estimate is returned as None.
+        """
+        fitted: Any = self.fitted_model
+        names = list(fitted.model.param_names)
+        columns = [
+            np.asarray(values, dtype=np.float64).reshape(-1)
+            for values in (fitted.params, fitted.bse, fitted.pvalues)
+        ]
+        if any(column.shape != (len(names),) for column in columns):
+            raise ValueError("ARIMA parameter vectors do not match parameter names.")
+        coefficients, std_errors, p_values = columns
+        if not np.isfinite(coefficients).all():
+            raise ValueError("ARIMA coefficients must be finite.")
+        return [
+            {
+                "name": name,
+                "coefficient": float(coefficients[index]),
+                "std_error": _optional_finite(std_errors[index]),
+                "p_value": _optional_finite(p_values[index]),
+            }
+            for index, name in enumerate(names)
+        ]
+
+
+def _optional_finite(value: float) -> float | None:
+    """Return a finite float, or None when statsmodels produced NaN/Inf."""
+    number = float(value)
+    return number if np.isfinite(number) else None

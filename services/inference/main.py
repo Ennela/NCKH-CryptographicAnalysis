@@ -1,29 +1,59 @@
+import json
 import logging
+import time
+from dataclasses import asdict
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import List, Optional
+
+import mlflow
+import pandas as pd
 import redis
-from datetime import timedelta
-from typing import List
 from fastapi import FastAPI, Depends, Header, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
+from mlflow.exceptions import MlflowException
+from mlflow.tracking import MlflowClient
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 
 # Import Shared Module Components
 from shared.utils.logging import setup_logging
-from shared.utils.timezone import now_utc, to_utc
+from shared.utils.timezone import now_utc
 from shared.config.settings import settings
 from shared.db.session import get_db
 
 # Note: hypertable tables (market.ohlcv, ml.prediction) use raw SQL, not ORM models
 from shared.schemas.predict import (
+    ALLOWED_MODELS,
+    ALLOWED_TIMEFRAMES,
+    ExplainFeature,
+    ExplainResponse,
+    ModelInfoResponse,
+    ModelMetrics,
     PredictRequest,
     PredictResponse,
     PredictionItem,
-    ModelInfoResponse,
-    ModelMetrics,
+)
+from shared.schemas.analytics import (
+    DataQualityReport,
+    IndicatorPoint,
+    IndicatorResponse,
+    JobLogEntry,
+    PipelineCheck,
+    SymbolStats,
 )
 
 # Local imports
-from model_loader import model_loader
+from analytics import INDICATOR_WARMUP_BARS, compute_indicators, profile_quality
+from model_loader import (
+    LoadedModel,
+    ModelLoadError,
+    ModelNotRegisteredError,
+    build_registry_name,
+    model_loader,
+    normalize_ticker,
+)
 from redis_cache import redis_cache
 
 # Initialize logs
@@ -47,6 +77,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Số nến lịch sử nạp cho các model dạng feature (đủ dư cho lag 20 và
+# giai đoạn warm-up của các chỉ báo EWM như RSI/MACD).
+FEATURE_HISTORY_BARS = 400
+# ARIMA cần mọi nến sau history_end_ts của model đã log để tiến trạng thái.
+ARIMA_HISTORY_BARS = 5000
+STEP_DELTAS = {"1d": timedelta(days=1), "1h": timedelta(hours=1)}
+PREDICTION_CACHE_TTL_SECONDS = 300
+EXPLAIN_ARTIFACT_PATH = "explainability/feature_importance.json"
+
 # ==============================================================================
 # Security Middleware & Helpers
 # ==============================================================================
@@ -57,7 +96,7 @@ async def verify_api_key(
 ):
     """Verifies client request API Key."""
     if x_api_key != settings.API_KEY_SECRET:
-        logger.warning(f"Unauthorized access attempt with API Key: {x_api_key}")
+        logger.warning("Unauthorized access attempt with an invalid API key")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing X-API-Key header",
@@ -65,36 +104,176 @@ async def verify_api_key(
     return x_api_key
 
 
+RATE_LIMIT_WINDOW_SECONDS = 60
+
+
+def rate_limit_bucket_key(x_api_key: str, client_ip: str, now: float) -> str:
+    """Redis key of the fixed one-minute window that ``now`` falls into.
+
+    Every window gets its own key, so the count restarts at each minute
+    boundary no matter how steadily requests keep arriving.
+    """
+    window = int(now // RATE_LIMIT_WINDOW_SECONDS)
+    return f"rate_limit:{x_api_key}:{client_ip}:{window}"
+
+
 async def rate_limiter(request: Request, x_api_key: str = Depends(verify_api_key)):
     """
-    Very simple Redis-based Rate Limiter.
-    Limits clients based on their API Key and IP.
+    Fixed-window Redis rate limiter: at most RATE_LIMIT_PER_MINUTE requests per
+    API key and client IP in each calendar minute.
+
+    The previous version refreshed one key's 60 s TTL on every request, so a
+    client that never paused for a full minute was locked out for good after
+    its 60th request instead of once per minute.
     """
     if not redis_cache.client:
         return  # Skip rate limit checks if Redis is not running
 
     client_ip = request.client.host
-    rate_limit_key = f"rate_limit:{x_api_key}:{client_ip}"
+    rate_limit_key = rate_limit_bucket_key(x_api_key, client_ip, time.time())
 
     try:
-        current_requests = redis_cache.client.get(rate_limit_key)
-        if current_requests and int(current_requests) >= settings.RATE_LIMIT_PER_MINUTE:
-            logger.warning(f"Rate limit exceeded for client: {client_ip}")
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Too many requests. Limit exceeded.",
-            )
-
-        # Increment request count and set 60s expiration
         pipe = redis_cache.client.pipeline()
         pipe.incr(rate_limit_key)
-        pipe.expire(rate_limit_key, 60)
-        pipe.execute()
-
+        # Expire the window key shortly after its minute ends; the TTL being
+        # refreshed within the same window is harmless.
+        pipe.expire(rate_limit_key, RATE_LIMIT_WINDOW_SECONDS * 2)
+        current_requests, _ = pipe.execute()
     except redis.RedisError as e:
         logger.error(f"Rate limiter Redis error: {str(e)}")
         # Allow request to proceed if rate limiting fails due to Redis error (Fail-open design)
         return
+
+    if int(current_requests) > settings.RATE_LIMIT_PER_MINUTE:
+        logger.warning(f"Rate limit exceeded for client: {client_ip}")
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Limit exceeded.",
+        )
+
+
+# ==============================================================================
+# Data access helpers
+# ==============================================================================
+
+
+def _resolve_symbol(db: Session, ticker: str) -> tuple[int, str]:
+    """Lookup (symbol_id, asset_class) for a normalized ticker, else 404."""
+    row = db.execute(
+        text(
+            "SELECT id, asset_class::text FROM market.symbol "
+            "WHERE ticker = :ticker AND status = 'active'"
+        ),
+        {"ticker": ticker},
+    ).first()
+    if not row:
+        raise HTTPException(status_code=404, detail=f"Ticker '{ticker}' not found.")
+    return int(row[0]), str(row[1])
+
+
+def _load_history(
+    db: Session, symbol_id: int, timeframe: str, limit: int
+) -> pd.DataFrame:
+    """Load the newest `limit` OHLCV bars as a chronological DataFrame."""
+    rows = db.execute(
+        text(
+            "SELECT ts, open, high, low, close, volume FROM market.ohlcv "
+            "WHERE symbol_id = :symbol_id AND timeframe = :timeframe "
+            "ORDER BY ts DESC LIMIT :limit"
+        ),
+        {"symbol_id": symbol_id, "timeframe": timeframe, "limit": limit},
+    ).fetchall()
+    frame = pd.DataFrame(
+        list(reversed(rows)),
+        columns=["ts", "open", "high", "low", "close", "volume"],
+    )
+    if not frame.empty:
+        frame["ts"] = pd.to_datetime(frame["ts"], utc=True)
+        for column in ("open", "high", "low", "close", "volume"):
+            frame[column] = frame[column].astype(float)
+    return frame
+
+
+def _target_times(
+    last_bar_ts: datetime, timeframe: str, asset_class: str, steps: int
+) -> List[datetime]:
+    """Timestamps of the next `steps` bars after the last observed bar.
+
+    Each model step is "the next bar", so daily stock bars land on the next
+    trading days (Mon–Fri) rather than calendar days; crypto trades 24/7.
+    Vietnamese public holidays are not modelled.
+    """
+    if asset_class == "stock" and timeframe == "1d":
+        start = pd.Timestamp(last_bar_ts)
+        return [
+            (start + pd.offsets.BDay(step)).to_pydatetime()
+            for step in range(1, steps + 1)
+        ]
+    return [last_bar_ts + STEP_DELTAS[timeframe] * step for step in range(1, steps + 1)]
+
+
+def _persist_predictions(
+    db: Session,
+    loaded: LoadedModel,
+    symbol_id: int,
+    feature_asof_ts: datetime,
+    predictions: List[PredictionItem],
+) -> None:
+    """Best-effort write of predictions into ml.prediction.
+
+    ml.prediction requires a model_version_id FK; rows are only written when
+    an ml.model_version entry exists for the MLflow run that produced the
+    model (registered by the training/ops flow). Missing rows are logged and
+    skipped — the API response is never affected.
+    """
+    try:
+        row = db.execute(
+            text(
+                "SELECT id FROM ml.model_version "
+                "WHERE mlflow_run_id = :run_id ORDER BY id DESC LIMIT 1"
+            ),
+            {"run_id": loaded.run_id},
+        ).first()
+        if not row:
+            logger.info(
+                "No ml.model_version row for MLflow run %s — "
+                "skipping prediction persistence.",
+                loaded.run_id,
+            )
+            return
+        model_version_id = int(row[0])
+        for horizon, item in enumerate(predictions, start=1):
+            db.execute(
+                text(
+                    "INSERT INTO ml.prediction "
+                    "(model_version_id, symbol_id, feature_asof_ts, target_ts, "
+                    " horizon, y_pred) "
+                    "VALUES (:model_version_id, :symbol_id, :feature_asof_ts, "
+                    "        :target_ts, :horizon, :y_pred) "
+                    "ON CONFLICT ON CONSTRAINT uq_prediction "
+                    "DO UPDATE SET y_pred = EXCLUDED.y_pred"
+                ),
+                {
+                    "model_version_id": model_version_id,
+                    "symbol_id": symbol_id,
+                    "feature_asof_ts": feature_asof_ts,
+                    "target_ts": item.target_time,
+                    "horizon": horizon,
+                    "y_pred": item.predicted_value,
+                },
+            )
+        db.commit()
+        logger.info(
+            "Persisted %d predictions (model_version_id=%d).",
+            len(predictions),
+            model_version_id,
+        )
+    except Exception as exc:  # noqa: BLE001 — persistence must never break the API
+        logger.warning("Prediction persistence failed: %s", exc)
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 # ==============================================================================
@@ -115,118 +294,83 @@ def health_check():
 )
 def predict_price(payload: PredictRequest, db: Session = Depends(get_db)):
     """
-    Dự báo giá tài sản chứng khoán/crypto bằng mô hình đã chọn.
-    Sử dụng Cache Redis và lưu nhật ký dự đoán vào DB.
+    Dự báo giá tài sản chứng khoán/crypto bằng model đã đăng ký trong
+    MLflow Registry. Kết quả được cache Redis và ghi ml.prediction (best-effort).
     """
-    cache_key = f"prediction:{payload.ticker_id}:{payload.model_name}:{payload.steps}"
+    ticker = normalize_ticker(payload.ticker_id)
+    symbol_id, asset_class = _resolve_symbol(db, ticker)
+    timeframe = payload.timeframe or ("1h" if asset_class == "crypto" else "1d")
 
-    # 1. Check Redis Cache
+    cache_key = f"prediction:{ticker}:{timeframe}:{payload.model_name}:{payload.steps}"
     cached_response = redis_cache.get(cache_key)
     if cached_response:
         logger.info(f"Cache hit for {cache_key}")
         return PredictResponse(**cached_response)
 
-    # 2. Get latest features/data from database
-    logger.info(
-        f"Predicting price for {payload.ticker_id} using {payload.model_name}..."
+    # 1. Load model từ MLflow Registry (503 khi chưa train / MLflow down)
+    try:
+        loaded = model_loader.load(ticker, timeframe, payload.model_name)
+    except ModelNotRegisteredError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ModelLoadError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    # 2. Nạp lịch sử OHLCV làm input cho feature/sequence/state
+    history_bars = (
+        ARIMA_HISTORY_BARS if payload.model_name == "arima" else FEATURE_HISTORY_BARS
     )
-
-    # Determine step duration (1 hour for crypto 1h, 1 day for stock 1d)
-    # Fetching the asset type from market.symbol by ticker name
-    ticker_query = text(
-        "SELECT id, asset_class FROM market.symbol WHERE ticker = :ticker"
-    )
-    ticker_res = db.execute(ticker_query, {"ticker": payload.ticker_id}).first()
-    if not ticker_res:
-        raise HTTPException(
-            status_code=404, detail=f"Ticker '{payload.ticker_id}' not found."
-        )
-
-    symbol_id = ticker_res[0]
-    asset_type = ticker_res[1]
-    # Set step interval
-    step_delta = timedelta(days=1)
-    resolution = "1d"
-    if asset_type == "crypto":
-        step_delta = timedelta(hours=1)
-        resolution = "1h"
-
-    # Get latest close price from market.ohlcv hypertable (raw SQL)
-    latest_query = text(
-        "SELECT close FROM market.ohlcv "
-        "WHERE symbol_id = :symbol_id AND timeframe = :timeframe "
-        "ORDER BY ts DESC LIMIT 1"
-    )
-    latest_row = db.execute(
-        latest_query, {"symbol_id": symbol_id, "timeframe": resolution}
-    ).first()
-
-    if not latest_row:
+    history = _load_history(db, symbol_id, timeframe, history_bars)
+    if history.empty:
         raise HTTPException(
             status_code=400,
-            detail=f"No historical price records found for ticker {payload.ticker_id} (res={resolution}). Can't forecast.",
+            detail=(
+                f"No historical price records found for ticker {ticker} "
+                f"(timeframe={timeframe}). Can't forecast."
+            ),
         )
 
-    # 3. Load model from MLflow Model Registry
+    # 3. Chạy dự báo thật bằng predictor tương ứng flavor
     try:
-        model = model_loader.load_registered_model(
-            payload.ticker_id, payload.model_name
-        )
-    except Exception as e:
-        logger.error(f"Failed loading model: {str(e)}")
-        # Demo fallback: If MLflow is unavailable, we generate mock prediction trajectory
-        logger.warning(
-            "MLflow model registry unavailable. Generating mock trend trajectory for demo/frontend testing."
-        )
-        model = None
+        values = loaded.predictor.predict_steps(history, payload.steps)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Not enough usable history for {ticker} ({timeframe}): {exc}",
+        ) from exc
 
-    # 4. Generate Predictions (Multi-step ahead forecasting)
-    # Note: In a real system, the features matrix is loaded and model.predict(X) is executed.
+    last_bar_ts = history["ts"].iloc[-1].to_pydatetime()
     prediction_time = now_utc()
-    predictions = []
+    target_times = _target_times(last_bar_ts, timeframe, asset_class, len(values))
+    predictions = [
+        PredictionItem(target_time=target_time, predicted_value=value)
+        for target_time, value in zip(target_times, values)
+    ]
 
-    current_val = float(latest_row[0])
-    for i in range(1, payload.steps + 1):
-        target_time = prediction_time + (step_delta * i)
+    # 4. Ghi ml.prediction (best-effort, không ảnh hưởng response)
+    _persist_predictions(db, loaded, symbol_id, last_bar_ts, predictions)
 
-        if model:
-            # TODO: Dev 3 & 4. Pass actual features into the MLflow model.
-            # Example: features = load_latest_features(payload.ticker_id)
-            # current_val = model.predict(features)
-
-            # Simple placeholder using loaded model details
-            current_val = current_val * 1.001  # small upward drift mock
-        else:
-            # Mock drift for demo if MLflow is offline
-            import random
-
-            drift = random.uniform(-0.02, 0.02)
-            current_val = current_val * (1 + drift)
-
-        predictions.append(
-            PredictionItem(target_time=to_utc(target_time), predicted_value=current_val)
-        )
-
-    # 5. Log predictions (skipping DB write for now — ml.prediction requires
-    #    model_version_id + horizon which aren't available in demo mode)
     logger.info(
-        "Generated %d predictions for %s using %s",
+        "Generated %d predictions for %s/%s using %s v%d",
         len(predictions),
-        payload.ticker_id,
-        payload.model_name,
+        ticker,
+        timeframe,
+        loaded.registry_name,
+        loaded.version,
     )
 
-    # 6. Format Response
     response = PredictResponse(
-        ticker_id=payload.ticker_id,
+        ticker_id=ticker,
         model_name=payload.model_name,
         prediction_time=prediction_time,
         predictions=predictions,
     )
 
-    # 7. Save to Redis Cache (expires in 5 minutes)
-    redis_cache.set(cache_key, response.dict(), ttl_seconds=300)
-
+    # 5. Cache Redis (JSON-safe dump để serialize được datetime)
+    redis_cache.set(
+        cache_key,
+        response.model_dump(mode="json"),
+        ttl_seconds=PREDICTION_CACHE_TTL_SECONDS,
+    )
     return response
 
 
@@ -235,39 +379,134 @@ def predict_price(payload: PredictRequest, db: Session = Depends(get_db)):
     response_model=List[ModelInfoResponse],
     dependencies=[Depends(verify_api_key)],
 )
-def get_active_models(db: Session = Depends(get_db)):
+def get_active_models():
     """
-    Lấy danh sách các mô hình đang hoạt động và chất lượng huấn luyện (metrics) từ MLflow.
+    Lấy danh sách model đã đăng ký trong MLflow Registry kèm metrics
+    (mae/rmse/mape) đọc từ run huấn luyện tương ứng.
     """
-    # TODO: Connect to MLflow client to list registered models.
-    # client = mlflow.tracking.MlflowClient()
-    # models = client.search_registered_models()
+    client = MlflowClient()
+    try:
+        registered = client.search_registered_models()
+    except MlflowException as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"MLflow Registry unavailable: {exc}",
+        ) from exc
 
-    # Mocking active models structure based on the API Contract
-    now = now_utc()
-    return [
-        ModelInfoResponse(
-            model_name="arima",
-            version="1",
-            status="active",
-            metrics=ModelMetrics(mae=150.25, rmse=180.40, mape=0.024),
-            last_updated=now - timedelta(days=2),
-        ),
-        ModelInfoResponse(
-            model_name="xgboost",
-            version="3",
-            status="active",
-            metrics=ModelMetrics(mae=98.12, rmse=120.34, mape=0.015),
-            last_updated=now - timedelta(days=1),
-        ),
-        ModelInfoResponse(
-            model_name="lstm",
-            version="2",
-            status="staging",
-            metrics=ModelMetrics(mae=85.50, rmse=105.10, mape=0.012),
-            last_updated=now - timedelta(hours=6),
-        ),
-    ]
+    results: List[ModelInfoResponse] = []
+    for registered_model in registered:
+        versions = registered_model.latest_versions or []
+        if not versions:
+            continue
+        newest = max(versions, key=lambda v: int(v.version))
+
+        metrics: Optional[ModelMetrics] = None
+        try:
+            run_metrics = client.get_run(newest.run_id).data.metrics
+            mae = run_metrics.get("mae")
+            rmse = run_metrics.get("rmse")
+            mape = run_metrics.get("mape_pct", run_metrics.get("mape"))
+            if mae is not None and rmse is not None and mape is not None:
+                metrics = ModelMetrics(
+                    mae=mae,
+                    rmse=rmse,
+                    mape=mape,
+                    naive_mae=run_metrics.get("naive_mae"),
+                    naive_rmse=run_metrics.get("naive_rmse"),
+                    naive_mape=run_metrics.get(
+                        "naive_mape_pct", run_metrics.get("naive_mape")
+                    ),
+                    directional_accuracy=run_metrics.get("directional_accuracy"),
+                )
+        except MlflowException as exc:
+            logger.warning(
+                "Could not read metrics for %s: %s", registered_model.name, exc
+            )
+
+        stage = (newest.current_stage or "None").lower()
+        status_label = "active" if stage in ("none", "production") else stage
+        last_updated = None
+        if registered_model.last_updated_timestamp:
+            last_updated = datetime.fromtimestamp(
+                registered_model.last_updated_timestamp / 1000, tz=timezone.utc
+            )
+        results.append(
+            ModelInfoResponse(
+                model_name=registered_model.name,
+                version=str(newest.version),
+                status=status_label,
+                metrics=metrics,
+                last_updated=last_updated,
+            )
+        )
+    return results
+
+
+@app.get(
+    "/api/v1/explain",
+    response_model=ExplainResponse,
+    dependencies=[Depends(rate_limiter)],
+)
+def explain_model(
+    ticker: str = Query(..., description="Mã tài sản, VD: ACB, BTCUSDT"),
+    timeframe: str = Query("1d", description="Khung thời gian: 1d, 1h"),
+    model_name: str = Query("xgboost", description="Model cần giải thích"),
+):
+    """
+    Trả về giải thích mô hình đọc từ artifact
+    explainability/feature_importance.json mà entrypoint train của từng model
+    log lên MLflow: SHAP (xgboost, random_forest), permutation importance
+    (gru) hoặc bảng hệ số (arima). Trường ``method`` cho biết loại nào.
+    """
+    timeframe = timeframe.strip().lower()
+    if timeframe not in ALLOWED_TIMEFRAMES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid timeframe '{timeframe}'. Must be one of {ALLOWED_TIMEFRAMES}",
+        )
+    model_name = model_name.strip().lower()
+    if model_name not in ALLOWED_MODELS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid model '{model_name}'. Must be one of {ALLOWED_MODELS}",
+        )
+
+    registry_name = build_registry_name(ticker, timeframe, model_name)
+    try:
+        _version, run_id = model_loader.latest_version(registry_name)
+    except ModelNotRegisteredError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ModelLoadError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    try:
+        artifact_path = mlflow.artifacts.download_artifacts(
+            run_id=run_id, artifact_path=EXPLAIN_ARTIFACT_PATH
+        )
+        payload = json.loads(Path(artifact_path).read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001 — missing artifact -> 404
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"Model '{registry_name}' has no SHAP explainability artifact. "
+                "Re-run its training entrypoint to generate one."
+            ),
+        ) from exc
+
+    features = [ExplainFeature(**feature) for feature in payload.get("features", [])]
+    return ExplainResponse(
+        ticker=normalize_ticker(ticker),
+        timeframe=timeframe,
+        model_name=model_name,
+        method=payload.get("method", "shap_tree_explainer"),
+        features=features,
+        generated_at=payload.get("generated_at"),
+        n_samples=payload.get("n_samples"),
+        baseline_rmse=payload.get("baseline_rmse"),
+        n_repeats=payload.get("n_repeats"),
+        order=payload.get("order"),
+        n_observations=payload.get("n_observations"),
+    )
 
 
 @app.get(
@@ -360,3 +599,263 @@ def get_ohlcv_history(
         }
         for row in rows
     ]
+
+
+# ==============================================================================
+# Data analytics endpoints (Phân tích dữ liệu / Thu thập & Làm sạch)
+# ==============================================================================
+
+# Upper bound on bars loaded per symbol for the quality profile (≈ 11 years of
+# hourly crypto) — keeps one request bounded even if ingestion runs for years.
+QUALITY_MAX_BARS = 100_000
+
+STATS_SQL = text(
+    "WITH base AS ("
+    "  SELECT o.symbol_id, o.ts, o.high, o.low, o.close, o.volume,"
+    "         o.close / NULLIF(LAG(o.close) OVER ("
+    "             PARTITION BY o.symbol_id ORDER BY o.ts), 0) - 1 AS ret"
+    "  FROM market.ohlcv o WHERE o.timeframe = :timeframe"
+    ") "
+    "SELECT s.id AS symbol_id, s.ticker, s.asset_class::text AS asset_class,"
+    "       COUNT(*) AS bars,"
+    "       MIN(b.ts) AS first_ts, MAX(b.ts) AS last_ts,"
+    "       MIN(b.low) AS lowest_low, MAX(b.high) AS highest_high,"
+    "       AVG(b.close) AS mean_close, STDDEV_SAMP(b.close) AS std_close,"
+    "       (ARRAY_AGG(b.close ORDER BY b.ts))[1] AS first_close,"
+    "       (ARRAY_AGG(b.close ORDER BY b.ts DESC))[1] AS last_close,"
+    "       AVG(b.volume) AS mean_volume, MAX(b.volume) AS max_volume,"
+    "       STDDEV_SAMP(b.ret) AS return_std "
+    "FROM base b JOIN market.symbol s ON s.id = b.symbol_id "
+    "WHERE s.status = 'active' "
+    "GROUP BY s.id, s.ticker, s.asset_class "
+    "ORDER BY s.asset_class, s.ticker"
+)
+
+
+# Bars used for the latest RSI/MACD in /stats — the same history the analysis
+# chart loads by default (250 shown + warm-up), so both show identical values.
+STATS_INDICATOR_BARS = 250 + INDICATOR_WARMUP_BARS
+
+
+def _latest_indicators(db: Session, symbol_id: int, timeframe: str) -> dict:
+    """RSI 14 / MACD / signal on the newest bar (None when history is short)."""
+    history = _load_history(db, symbol_id, timeframe, STATS_INDICATOR_BARS)
+    if history.empty:
+        return {"rsi_14": None, "macd": None, "macd_signal": None}
+    last = compute_indicators(history).iloc[-1]
+    return {
+        key: None if pd.isna(last[key]) else float(last[key])
+        for key in ("rsi_14", "macd", "macd_signal")
+    }
+
+
+def _validate_timeframe(timeframe: str) -> str:
+    """Normalize a timeframe query parameter or raise 400."""
+    timeframe = timeframe.strip().lower()
+    if timeframe not in ALLOWED_TIMEFRAMES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid timeframe '{timeframe}'. Must be one of {ALLOWED_TIMEFRAMES}",
+        )
+    return timeframe
+
+
+def _fetch_rows(db: Session, statement, params: dict) -> list:
+    """Run a read-only query; map database failures to 503 with a log line."""
+    try:
+        return db.execute(statement, params).fetchall()
+    except SQLAlchemyError as exc:
+        logger.error("Analytics query failed: %s", exc)
+        raise HTTPException(
+            status_code=503, detail="Database unavailable for analytics query."
+        ) from exc
+
+
+def _optional_float(value) -> Optional[float]:
+    """Convert a nullable NUMERIC/float column to float."""
+    return None if value is None else float(value)
+
+
+@app.get(
+    "/api/v1/stats",
+    response_model=List[SymbolStats],
+    dependencies=[Depends(verify_api_key)],
+)
+def get_symbol_stats(
+    timeframe: str = Query("1d", description="Khung thời gian: 1d, 1h"),
+    db: Session = Depends(get_db),
+) -> List[SymbolStats]:
+    """
+    Thống kê mô tả dữ liệu đã làm sạch (market.ohlcv) cho mọi mã có dữ liệu:
+    số nến, khoảng thời gian, giá cao/thấp nhất, giá trung bình, khối lượng,
+    % thay đổi, độ lệch chuẩn lợi suất theo nến và RSI/MACD tại nến gần nhất.
+    """
+    timeframe = _validate_timeframe(timeframe)
+    rows = _fetch_rows(db, STATS_SQL, {"timeframe": timeframe})
+    try:
+        latest = {
+            row.ticker: _latest_indicators(db, int(row.symbol_id), timeframe)
+            for row in rows
+        }
+    except SQLAlchemyError as exc:
+        logger.error("Latest-indicator query failed: %s", exc)
+        raise HTTPException(status_code=503, detail="Database unavailable.") from exc
+    results: List[SymbolStats] = []
+    for row in rows:
+        first_close, last_close = float(row.first_close), float(row.last_close)
+        return_std = _optional_float(row.return_std)
+        results.append(
+            SymbolStats(
+                ticker=row.ticker,
+                asset_class=row.asset_class,
+                timeframe=timeframe,
+                bars=int(row.bars),
+                first_ts=row.first_ts,
+                last_ts=row.last_ts,
+                lowest_low=float(row.lowest_low),
+                highest_high=float(row.highest_high),
+                mean_close=float(row.mean_close),
+                std_close=_optional_float(row.std_close),
+                first_close=first_close,
+                last_close=last_close,
+                change_pct=(
+                    (last_close / first_close - 1.0) * 100.0 if first_close else None
+                ),
+                mean_volume=float(row.mean_volume),
+                max_volume=float(row.max_volume),
+                return_std_pct=None if return_std is None else return_std * 100.0,
+                **latest[row.ticker],
+            )
+        )
+    return results
+
+
+@app.get(
+    "/api/v1/indicators",
+    response_model=IndicatorResponse,
+    dependencies=[Depends(verify_api_key)],
+)
+def get_indicators(
+    ticker: str = Query(..., description="Mã tài sản, VD: ACB, BTCUSDT"),
+    timeframe: str = Query("1d", description="Khung thời gian: 1d, 1h"),
+    limit: int = Query(250, ge=20, le=1000, description="Số nến hiển thị"),
+    db: Session = Depends(get_db),
+) -> IndicatorResponse:
+    """
+    Nến OHLCV kèm chỉ báo kỹ thuật (SMA 20/50, RSI 14, MACD 12-26-9) cho
+    dashboard phân tích. Nạp thêm INDICATOR_WARMUP_BARS nến trước cửa sổ hiển
+    thị để chỉ báo đã ổn định ngay ở nến đầu tiên.
+    """
+    timeframe = _validate_timeframe(timeframe)
+    symbol = normalize_ticker(ticker)
+    try:
+        symbol_id, _asset_class = _resolve_symbol(db, symbol)
+        history = _load_history(db, symbol_id, timeframe, limit + INDICATOR_WARMUP_BARS)
+    except SQLAlchemyError as exc:
+        logger.error("Indicator query failed for %s: %s", symbol, exc)
+        raise HTTPException(status_code=503, detail="Database unavailable.") from exc
+    if history.empty:
+        raise HTTPException(
+            status_code=404, detail=f"No {timeframe} OHLCV data for {symbol}."
+        )
+
+    featured = compute_indicators(history).tail(limit)
+    featured = featured.astype(object).where(featured.notna(), None)
+    points = [IndicatorPoint(**record) for record in featured.to_dict("records")]
+    return IndicatorResponse(ticker=symbol, timeframe=timeframe, points=points)
+
+
+def _latest_pipeline_checks(db: Session, timeframe: str) -> dict[str, PipelineCheck]:
+    """Latest cleaning-pipeline report per ticker from ops.data_quality_check."""
+    rows = _fetch_rows(
+        db,
+        text(
+            "SELECT DISTINCT ON (q.symbol_id) s.ticker, q.checked_at, q.passed, q.detail "
+            "FROM ops.data_quality_check q JOIN market.symbol s ON s.id = q.symbol_id "
+            "WHERE q.timeframe = :timeframe AND q.check_name = 'cleaning_pipeline' "
+            "ORDER BY q.symbol_id, q.checked_at DESC"
+        ),
+        {"timeframe": timeframe},
+    )
+    return {
+        row.ticker: PipelineCheck(
+            checked_at=row.checked_at, passed=bool(row.passed), detail=row.detail or {}
+        )
+        for row in rows
+    }
+
+
+@app.get(
+    "/api/v1/data-quality",
+    response_model=List[DataQualityReport],
+    dependencies=[Depends(verify_api_key)],
+)
+def get_data_quality(
+    timeframe: str = Query("1d", description="Khung thời gian: 1d, 1h"),
+    db: Session = Depends(get_db),
+) -> List[DataQualityReport]:
+    """
+    Hồ sơ chất lượng dữ liệu của từng mã, đo trực tiếp trên market.ohlcv
+    (độ đầy đủ so với lịch giao dịch, nến volume 0, nến OHLC không hợp lệ,
+    biến động/khối lượng bất thường theo IQR) kèm báo cáo gần nhất của
+    pipeline làm sạch ghi trong ops.data_quality_check.
+    """
+    timeframe = _validate_timeframe(timeframe)
+    symbols = _fetch_rows(
+        db,
+        text(
+            "SELECT DISTINCT s.id, s.ticker, s.asset_class::text AS asset_class "
+            "FROM market.symbol s JOIN market.ohlcv o ON o.symbol_id = s.id "
+            "WHERE s.status = 'active' AND o.timeframe = :timeframe "
+            "ORDER BY asset_class, s.ticker"
+        ),
+        {"timeframe": timeframe},
+    )
+    checks = _latest_pipeline_checks(db, timeframe)
+    reports: List[DataQualityReport] = []
+    for symbol in symbols:
+        try:
+            history = _load_history(db, int(symbol.id), timeframe, QUALITY_MAX_BARS)
+        except SQLAlchemyError as exc:
+            logger.error("Quality query failed for %s: %s", symbol.ticker, exc)
+            raise HTTPException(
+                status_code=503, detail="Database unavailable."
+            ) from exc
+        profile = profile_quality(history, symbol.asset_class, timeframe)
+        reports.append(
+            DataQualityReport(
+                ticker=symbol.ticker,
+                asset_class=symbol.asset_class,
+                timeframe=timeframe,
+                **asdict(profile),
+                last_pipeline_check=checks.get(symbol.ticker),
+            )
+        )
+    return reports
+
+
+@app.get(
+    "/api/v1/jobs",
+    response_model=List[JobLogEntry],
+    dependencies=[Depends(verify_api_key)],
+)
+def get_recent_jobs(
+    limit: int = Query(20, ge=1, le=100, description="Số job gần nhất trả về"),
+    db: Session = Depends(get_db),
+) -> List[JobLogEntry]:
+    """
+    Nhật ký tác vụ thu thập/làm sạch gần nhất (ops.job_log) do Celery worker
+    ghi, mới nhất trước.
+    """
+    rows = _fetch_rows(
+        db,
+        text(
+            "SELECT j.job_type::text AS job_type, j.job_name, j.status::text AS status,"
+            "       s.ticker, j.timeframe::text AS timeframe, j.started_at,"
+            "       j.finished_at, j.duration_ms, j.rows_affected, j.error_message "
+            "FROM ops.job_log j LEFT JOIN market.symbol s ON s.id = j.symbol_id "
+            "ORDER BY j.started_at DESC LIMIT :limit"
+        ),
+        {"limit": limit},
+    )
+    return [JobLogEntry(**dict(row._mapping)) for row in rows]

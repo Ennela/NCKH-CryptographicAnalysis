@@ -1,0 +1,81 @@
+# Nguồn sinh báo cáo tiến độ
+
+Toàn bộ hình vẽ, bảng số liệu và tệp DOCX trong `reports/` được **sinh ra từ mã**, không
+soạn tay. Khi thiết kế hệ thống hoặc kết quả thí nghiệm thay đổi, chạy lại các lệnh dưới
+đây là báo cáo tự cập nhật — không phải sửa từng hình, từng bảng.
+
+## Thành phần
+
+| Tệp | Sinh ra gì |
+|---|---|
+| `diagrams.py` | 7 sơ đồ thiết kế (kiến trúc, đường ống dữ liệu, ERD, tuần tự, ca sử dụng, CI/CD, vòng đời mô hình) |
+| `make_chart.py` | Biểu đồ so sánh RMSE của bốn mô hình với baseline Naive |
+| `capture.py` | Ảnh chụp giao diện web, Swagger và MLflow từ hệ thống đang chạy |
+| `make_xlsx.py` | Bảng kết quả Excel 4 sheet (`reports/Ket_qua_benchmark_*.xlsx`) |
+| `report_data.py` + `report_part2.py` | Nội dung báo cáo → `report.json` |
+| `build_docx.js` | `report.json` + hình → tệp `.docx` |
+| `chx_data.py` + `build_chx.js` | Chương X (thu thập – làm sạch – chuẩn hóa – thống kê – dashboard) → `reports/Chuong_X_Du_lieu.docx`; số liệu đọc trực tiếp từ API đang chạy |
+| `measure_latency.py` | Độ trễ `POST /api/v1/predict` của 4 mô hình (lần gọi đầu / model chạy thật / trúng cache) → `reports/validations/api_latency_*.csv` |
+| `agile_metrics.py` | Số liệu sprint từ Git/GitHub → `reports/agile_metrics.csv` |
+| `all_results.csv` | Chỉ số của 36 MLflow run, tổng hợp từ `artifacts/metrics/` (thư mục này nằm trong `.gitignore`) |
+
+## Yêu cầu
+
+```bash
+pip install pandas matplotlib openpyxl pillow playwright
+npm install docx
+```
+
+## Quy trình sinh lại
+
+```bash
+cd reports/src
+mkdir -p fig shots
+python diagrams.py fig          # 7 sơ đồ
+python make_chart.py .          # biểu đồ kết quả; cần all_results.csv
+cp chart_rmse_ratio.png fig/
+python make_xlsx.py .           # bảng Excel
+python report_data.py .         # -> report.json
+node build_docx.js              # -> .docx
+```
+
+### Chụp lại ảnh giao diện
+
+Cần hệ thống đang chạy (`docker compose up -d`). `capture.py` điều khiển một trình duyệt
+qua giao thức CDP thay vì tự tải trình duyệt riêng — cách này chạy được cả khi mạng
+không tải nổi bản Chromium của Playwright:
+
+```bash
+# Mở một trình duyệt Chromium/Edge ở chế độ headless kèm cổng gỡ lỗi
+"C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe" --headless=new \
+    --remote-debugging-port=9222 --user-data-dir=/tmp/edgeprof about:blank &
+
+python capture.py shots
+```
+
+Ảnh được dùng trong báo cáo cũng được lưu ở `docs/evidence/screenshots/` để làm minh
+chứng độc lập với tệp DOCX.
+
+## Cập nhật số liệu thí nghiệm
+
+`all_results.csv` gộp từ các tệp `artifacts/metrics/<mô hình>/<mã>_<khung>_<run_id>.csv`
+do bốn entrypoint huấn luyện sinh ra. Sau khi chạy thêm thí nghiệm, gộp lại rồi chạy lại
+`report_data.py` — các bảng trong Chương 8 và Phụ lục A sẽ tự cập nhật theo.
+
+## Lưu ý
+
+- Mục lục trong DOCX là trường động. Mở bằng Word rồi cập nhật trường (hoặc dùng
+  `TablesOfContents(1).Update()`) để hiện số trang.
+- Phông chữ trong sơ đồ được phóng theo hệ số `FS` ở đầu `diagrams.py`, vì hình bị thu nhỏ
+  khi đưa vào khổ A4.
+
+## Chương X (dữ liệu) — sinh lại
+
+Cần hệ thống đang chạy (Inference API ở `http://localhost:8010`, đổi bằng biến `API`):
+
+```bash
+python reports/src/chx_data.py      # -> reports/src/chx.json + reports/figures/chx_duong_ong.png
+node reports/src/build_chx.js       # -> reports/Chuong_X_Du_lieu.docx
+```
+
+Số chương, bảng, hình ghi dạng “X”, thay bằng số chương thật khi ghép vào báo cáo chung.

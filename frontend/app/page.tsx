@@ -1,107 +1,177 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowUpRight, ShieldCheck, Database, Brain, Activity } from "lucide-react";
+import { Activity, ArrowRight, Brain, Database, DownloadCloud, Eraser, LineChart, Sparkles } from "lucide-react";
+import {
+  describeApiError,
+  fetchJobs,
+  fetchModels,
+  fetchStats,
+  type JobLogEntry,
+  type ModelInfo,
+  type SymbolStats,
+} from "@/lib/api";
+import { formatDate, formatNum, formatPct, formatPrice } from "@/lib/format";
+import { AssetBadge, PageHeader, Panel, StatCard, StateBox } from "@/components/ui";
 
-export default function Dashboard() {
-  const stats = [
-    { label: "Mã Theo Dõi", value: "5", description: "3 Cổ phiếu VN + 2 Crypto", icon: Database, color: "text-glowIndigo" },
-    { label: "Mô Hình Hoạt Động", value: "4", description: "ARIMA, XGBoost, LSTM, GRU", icon: Brain, color: "text-glowEmerald" },
-    { label: "Số Bản Ghi Giá (Candles)", value: "50,000+", description: "Cập nhật mỗi 1 giờ / 1 ngày", icon: Activity, color: "text-amber-400" },
-    { label: "Độ Đo MAPE Trung Bình", value: "1.25%", description: "Đánh giá trên tập kiểm thử", icon: ShieldCheck, color: "text-glowRose" },
-  ];
+const FLOW = [
+  { href: "/pipeline", icon: DownloadCloud, title: "1. Thu thập", text: "Celery Beat gọi vnstock (cổ phiếu VN) và Binance (crypto) theo lịch, lưu thô vào market.ohlcv_raw." },
+  { href: "/pipeline", icon: Eraser, title: "2. Làm sạch", text: "Chuẩn hóa UTC, loại trùng, điền phiên thiếu, gắn cờ outlier IQR → market.ohlcv." },
+  { href: "/analysis", icon: LineChart, title: "3. Phân tích", text: "Thống kê mô tả, nến + SMA, khối lượng, RSI, MACD cho từng mã." },
+  { href: "/forecast", icon: Sparkles, title: "4. Dự báo", text: "ARIMA, XGBoost, Random Forest, GRU từ MLflow Registry, so với baseline Naive." },
+];
 
-  const symbols = [
-    { id: "BTC/USDT", name: "Bitcoin / Tether", type: "Crypto", exchange: "Binance", price: "$68,250.00", change: "+2.4%" },
-    { id: "FPT", name: "Công ty Cổ phần FPT", type: "Stock", exchange: "HOSE", price: "135,200 đ", change: "+1.8%" },
-    { id: "ETH/USDT", name: "Ethereum / Tether", type: "Crypto", exchange: "Binance", price: "$3,780.00", change: "-0.5%" },
-    { id: "VCB", name: "Ngân hàng Vietcombank", type: "Stock", exchange: "HOSE", price: "96,100 đ", change: "+0.2%" },
-  ];
+export default function OverviewPage() {
+  const [daily, setDaily] = useState<SymbolStats[]>([]);
+  const [hourly, setHourly] = useState<SymbolStats[]>([]);
+  const [models, setModels] = useState<ModelInfo[] | null>(null);
+  const [jobs, setJobs] = useState<JobLogEntry[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      // Registry and job log are best-effort: an MLflow outage must not hide market data.
+      const [d, h, m, j] = await Promise.all([
+        fetchStats("1d"),
+        fetchStats("1h"),
+        fetchModels().catch(() => null),
+        fetchJobs(20).catch(() => null),
+      ]);
+      setDaily(d);
+      setHourly(h);
+      setModels(m);
+      setJobs(j);
+    } catch (err) {
+      setError(describeApiError(err));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const tickers = new Set([...daily, ...hourly].map((s) => s.ticker));
+  const stockCount = new Set([...daily, ...hourly].filter((s) => s.asset_class === "stock").map((s) => s.ticker)).size;
+  const totalBars = [...daily, ...hourly].reduce((sum, s) => sum + s.bars, 0);
+  const finishedJobs = (jobs ?? []).filter((j) => j.status === "success" || j.status === "failed");
+  const jobSuccess = finishedJobs.length
+    ? (100 * finishedJobs.filter((j) => j.status === "success").length) / finishedJobs.length
+    : null;
 
   return (
-    <div className="space-y-10 animate-fade-in">
-      {/* Hero Welcome banner */}
-      <section className="glass-panel p-8 md:p-12 rounded-2xl border border-darkBorder flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-        <div className="space-y-4 max-w-2xl">
-          <h1 className="text-3xl md:text-5xl font-extrabold tracking-tight bg-gradient-to-r from-glowIndigo to-glowEmerald bg-clip-text text-transparent">
-            Hệ Thống Phân Tích & Dự Báo Giá
-          </h1>
-          <p className="text-slate-400 text-sm md:text-base leading-relaxed">
-            Dự án nghiên cứu xây dựng pipeline tự động thu thập dữ liệu giá OHLCV thị trường Tài chính & Crypto, 
-            huấn luyện mô hình học sâu chuỗi thời gian, và giải thích quyết định dự báo dựa trên SHAP.
-          </p>
-        </div>
-        <div className="flex gap-4">
-          <Link href="/forecast" className="px-6 py-3 rounded-xl bg-glowIndigo text-white font-semibold shadow-lg shadow-glowIndigo/20 hover:bg-glowIndigo/80 hover:shadow-glowIndigo/35 transition-all">
-            Chạy Dự Báo
-          </Link>
-          <Link href="/symbols" className="px-6 py-3 rounded-xl bg-slate-800 border border-slate-700 hover:bg-slate-700/50 transition-all text-slate-300 font-semibold">
-            Xem Bảng Giá
-          </Link>
-        </div>
-      </section>
+    <div className="space-y-6">
+      <PageHeader
+        title="Tổng quan hệ thống"
+        description="Hệ thống thu thập, làm sạch, phân tích và dự báo giá cổ phiếu Việt Nam và tiền mã hóa — mọi số liệu dưới đây đọc trực tiếp từ cơ sở dữ liệu qua Inference API."
+      />
 
-      {/* Stats Cards Section */}
-      <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        {stats.map((stat, idx) => {
-          const Icon = stat.icon;
-          return (
-            <div key={idx} className="glass-card p-6 rounded-xl border border-darkBorder flex flex-col justify-between h-36">
-              <div className="flex justify-between items-start">
-                <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">{stat.label}</span>
-                <Icon className={`w-5 h-5 ${stat.color}`} />
-              </div>
-              <div className="mt-2">
-                <span className="text-3xl font-bold tracking-tight text-slate-100">{stat.value}</span>
-                <p className="text-slate-500 text-xs mt-1">{stat.description}</p>
-              </div>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {FLOW.map(({ href, icon: Icon, title, text }) => (
+          <Link key={title} href={href} className="panel group flex flex-col gap-2 p-4 transition-colors hover:border-accentSoft">
+            <div className="flex items-center justify-between text-white">
+              <span className="flex items-center gap-2 font-semibold">
+                <Icon className="h-5 w-5 text-accentSoft" /> {title}
+              </span>
+              <ArrowRight className="h-4 w-4 text-slate-500 transition-transform group-hover:translate-x-1 group-hover:text-accentSoft" />
             </div>
-          );
-        })}
-      </section>
-
-      {/* Symbols Table list */}
-      <section className="space-y-4">
-        <div className="flex justify-between items-center">
-          <h2 className="text-xl md:text-2xl font-bold tracking-tight text-slate-200">Danh Sách Mã Giá Giám Sát</h2>
-          <Link href="/symbols" className="text-glowIndigo hover:text-glowIndigo/80 text-sm flex items-center gap-1">
-            Xem tất cả <ArrowUpRight className="w-4 h-4" />
+            <p className="text-xs leading-relaxed text-slate-400">{text}</p>
           </Link>
-        </div>
+        ))}
+      </div>
 
-        <div className="glass-panel rounded-xl border border-darkBorder overflow-hidden">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="border-b border-darkBorder bg-slate-900/40 text-slate-400 text-xs font-semibold uppercase tracking-wider">
-                <th className="py-4 px-6">Mã Tài Sản</th>
-                <th className="py-4 px-6">Tên</th>
-                <th className="py-4 px-6">Loại</th>
-                <th className="py-4 px-6">Sàn Giao Dịch</th>
-                <th className="py-4 px-6">Giá Gần Nhất</th>
-                <th className="py-4 px-6 text-right">Biến động 24h</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-darkBorder/40">
-              {symbols.map((sym) => (
-                <tr key={sym.id} className="hover:bg-slate-800/25 transition-all text-sm text-slate-300">
-                  <td className="py-4 px-6 font-bold text-glowIndigo">{sym.id}</td>
-                  <td className="py-4 px-6 text-slate-400">{sym.name}</td>
-                  <td className="py-4 px-6">
-                    <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${
-                      sym.type === "Crypto" ? "bg-purple-500/10 text-purple-400 border border-purple-500/20" : "bg-blue-500/10 text-blue-400 border border-blue-500/20"
-                    }`}>
-                      {sym.type}
-                    </span>
-                  </td>
-                  <td className="py-4 px-6 text-xs text-slate-500">{sym.exchange}</td>
-                  <td className="py-4 px-6 font-semibold">{sym.price}</td>
-                  <td className={`py-4 px-6 text-right font-semibold ${sym.change.startsWith("+") ? "text-glowEmerald" : "text-glowRose"}`}>
-                    {sym.change}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      {error ? (
+        <Panel>
+          <StateBox kind="error" message="Không tải được dữ liệu tổng quan" hint={error} onRetry={load} />
+        </Panel>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <StatCard
+              label="Mã theo dõi"
+              value={loading ? "…" : String(tickers.size)}
+              hint={`${stockCount} cổ phiếu VN · ${tickers.size - stockCount} crypto`}
+              icon={<Database className="h-5 w-5 text-accentSoft" />}
+            />
+            <StatCard
+              label="Nến đã lưu (đã làm sạch)"
+              value={loading ? "…" : formatNum(totalBars, 0)}
+              hint={`${formatNum(daily.reduce((s, x) => s + x.bars, 0), 0)} nến 1 ngày · ${formatNum(hourly.reduce((s, x) => s + x.bars, 0), 0)} nến 1 giờ`}
+              icon={<Activity className="h-5 w-5 text-up" />}
+            />
+            <StatCard
+              label="Mô hình đã đăng ký"
+              value={loading ? "…" : models ? String(models.length) : "—"}
+              hint={models ? "Trong MLflow Model Registry" : "Không kết nối được MLflow"}
+              icon={<Brain className="h-5 w-5 text-forecast" />}
+            />
+            <StatCard
+              label="Job thành công (20 gần nhất)"
+              value={loading ? "…" : jobSuccess === null ? "—" : `${formatNum(jobSuccess, 0)}%`}
+              hint={jobs === null ? "Không đọc được ops.job_log" : `${finishedJobs.length} job đã kết thúc`}
+              icon={<DownloadCloud className="h-5 w-5 text-purple-300" />}
+            />
+          </div>
+
+          <Panel
+            title="Bảng giá các mã (khung 1 ngày)"
+            subtitle="Giá đóng cửa gần nhất, biên độ cao/thấp và mức thay đổi trên toàn bộ lịch sử đã thu thập"
+            bodyClassName="overflow-x-auto"
+            actions={
+              <Link href="/analysis" className="btn-secondary">
+                Phân tích chi tiết <ArrowRight className="h-3.5 w-3.5" />
+              </Link>
+            }
+          >
+            {loading ? (
+              <StateBox kind="loading" message="Đang tải thống kê…" />
+            ) : daily.length === 0 ? (
+              <StateBox kind="empty" message="Chưa có dữ liệu khung 1 ngày" hint="Chạy import snapshot hoặc ingestion để nạp dữ liệu." />
+            ) : (
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Mã</th>
+                    <th>Loại</th>
+                    <th className="text-right">Giá cuối</th>
+                    <th>Cập nhật</th>
+                    <th className="text-right">Thấp nhất</th>
+                    <th className="text-right">Cao nhất</th>
+                    <th className="text-right">Thay đổi toàn kỳ</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {daily.map((s) => (
+                    <tr key={s.ticker}>
+                      <td className="font-bold text-white">{s.ticker}</td>
+                      <td><AssetBadge assetClass={s.asset_class} /></td>
+                      <td className="text-right font-mono">{formatPrice(s.last_close, s.asset_class)}</td>
+                      <td className="text-slate-400">{formatDate(s.last_ts)}</td>
+                      <td className="text-right font-mono text-down">{formatPrice(s.lowest_low, s.asset_class)}</td>
+                      <td className="text-right font-mono text-up">{formatPrice(s.highest_high, s.asset_class)}</td>
+                      <td className={`text-right font-mono ${(s.change_pct ?? 0) >= 0 ? "text-up" : "text-down"}`}>{formatPct(s.change_pct)}</td>
+                      <td className="text-right">
+                        <Link href={`/analysis?ticker=${s.ticker}&timeframe=1d`} className="text-xs text-accentSoft hover:underline">
+                          Xem biểu đồ
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </Panel>
+          <p className="text-xs text-slate-500">
+            Giá cổ phiếu VN tính theo nghìn đồng (đơn vị của nguồn vnstock); giá crypto tính theo USDT.
+          </p>
+        </>
+      )}
     </div>
   );
 }

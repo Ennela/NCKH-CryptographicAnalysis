@@ -141,12 +141,9 @@ def compute_naive_baseline_metrics(
     n_mape = mean_absolute_percentage_error(y_t, naive_pred)
     n_da = directional_accuracy(y_t, naive_pred, prev)
 
-    # Improvement vs naive (positive = model is better)
-    # Computed by the caller using model RMSE; here we return naive RMSE
-    # and the caller inserts model RMSE later.  But for convenience we
-    # compute it here too if the caller passes model metrics — that flow
-    # is handled in evaluate_predictions().  For now return -999 placeholder
-    # and let the caller set it.
+    # Note: improvement_vs_naive_rmse_pct is NOT computed here — this function
+    # only returns the naive_* metrics. The caller merges them with the model
+    # metrics and then calls add_improvement_vs_naive() to derive it.
 
     result: Dict[str, float] = {
         "naive_mae": n_mae,

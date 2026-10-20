@@ -13,7 +13,7 @@ graph TD
     %% External Data Sources
     subgraph Nguon_Du_Lieu [Nguồn Dữ Liệu Ngoại Vi]
         Binance[Binance REST API via ccxt]
-        VNStock[VNStock Library]
+        VNStock[Vietcap chart API]
     end
 
     %% Ingestion Service
@@ -121,7 +121,7 @@ Lưu trữ lịch sử dự đoán của mô hình để đánh giá hiệu năn
 
 1.  **Thu thập (Ingestion)**:
     *   `Celery Beat` kích hoạt định kỳ mỗi giờ (`1h` cho crypto) hoặc mỗi ngày (`1d` cho cổ phiếu & crypto).
-    *   Worker gọi API Binance hoặc thư viện `vnstock` để cào dữ liệu mới nhất.
+    *   Worker gọi API Binance (qua `ccxt`) hoặc API biểu đồ Vietcap (cổ phiếu VN) để lấy dữ liệu mới nhất.
     *   Dữ liệu được làm sạch, chuyển đổi múi giờ sang UTC, và thực hiện câu lệnh `UPSERT` vào TimescaleDB.
 2.  **Huấn luyện (Training)**:
     *   Nhà nghiên cứu chạy kịch bản huấn luyện (VD: `train_xgboost.py` cho XGBoost).
@@ -143,16 +143,16 @@ Lưu trữ lịch sử dự đoán của mô hình để đánh giá hiệu năn
 ## 4. Cấu Hình Lịch Chạy Định Kỳ (Celery Beat Scheduler)
 
 Quy trình thu thập dữ liệu (`ingest`) và làm sạch dữ liệu (`clean`) được cấu hình tự động thông qua **Celery Beat**:
-1.  **Lịch chạy Ingestion (Thu thập)**: Được cấu hình cố định trong [celery_app.py](file:///d:/sources/repos/NCKH/services/ingestion/celery_app.py).
+1.  **Lịch chạy Ingestion (Thu thập)**: Giờ chạy cấu hình trong [celery_app.py](file:///d:/sources/repos/NCKH/services/ingestion/celery_app.py) (crypto 1h: phút 5 mỗi giờ; crypto 1d: 00:10 UTC; cổ phiếu: thứ 2–6 10:00 UTC). Danh sách mã đọc từ `INGEST_CRYPTO_SYMBOLS` / `INGEST_STOCK_SYMBOLS` (mặc định đủ 25 mã của `configs/group_dataset.json`).
 2.  **Lịch chạy Cleaning (Làm sạch)**: Được cấu hình **động** dựa trên trạng thái hoạt động của symbols trong database thông qua [scheduler.py](file:///d:/sources/repos/NCKH/services/ingestion/app/scheduler.py):
     *   Hệ thống tự động quét danh sách symbols có `status = 'active'` từ bảng `market.symbol`.
     *   **Crypto symbols**: Chạy làm sạch hàng giờ. Phút chạy nến được **stagger** (phân bổ cách nhau `CLEAN_STAGGER_INTERVAL_MINS` phút) để tránh nghẽn database do các worker cùng ghi dữ liệu một lúc.
-    *   **Stock symbols**: Chạy làm sạch hàng ngày (từ Thứ 2 đến Thứ 6). Giờ chạy bắt đầu từ `CLEAN_STOCK_HOUR_UTC` (mặc định là `09:00 UTC` / `16:00 VN`, sau giờ đóng cửa sàn HOSE). Phút chạy cũng được stagger tuần tự.
+    *   **Stock symbols**: Chạy làm sạch hàng ngày (từ Thứ 2 đến Thứ 6). Giờ chạy bắt đầu từ `CLEAN_STOCK_HOUR_UTC` (mặc định là `11:00 UTC` / `18:00 VN`, tức 1 giờ sau task thu thập cổ phiếu lúc `10:00 UTC`; trước 28/09/2026 là `09:00 UTC`, chạy trước khi dữ liệu mới về nên bị trễ một ngày). Phút chạy cũng được stagger tuần tự.
 
 ### Cách thay đổi lịch chạy / tham số Scheduler
 Nhà phát triển có thể điều chỉnh lịch chạy thông qua các biến môi trường trong file `.env` mà không cần sửa code:
-*   `CLEAN_STOCK_HOUR_UTC`: Thay đổi giờ chạy làm sạch cổ phiếu daily (múi giờ UTC, ví dụ đặt `9` ứng với `16:00 VN`).
-*   `CLEAN_STAGGER_INTERVAL_MINS`: Khoảng giãn cách phút giữa các symbol khi chạy task (mặc định là `2` phút). Ví dụ, nếu có 3 cổ phiếu active FPT, VCB, MSN thì FPT chạy lúc 16:00, VCB chạy lúc 16:02, MSN chạy lúc 16:04.
+*   `CLEAN_STOCK_HOUR_UTC`: Thay đổi giờ chạy làm sạch cổ phiếu daily (múi giờ UTC, ví dụ đặt `11` ứng với `18:00 VN`; không nên đặt sớm hơn giờ thu thập `10:00 UTC`).
+*   `CLEAN_STAGGER_INTERVAL_MINS`: Khoảng giãn cách phút giữa các symbol khi chạy task (mặc định là `2` phút). Ví dụ, nếu có 3 cổ phiếu active FPT, VCB, MSN thì FPT chạy lúc 18:00, VCB chạy lúc 18:02, MSN chạy lúc 18:04 (giờ VN).
 
 ---
 

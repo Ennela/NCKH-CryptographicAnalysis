@@ -1,0 +1,13 @@
+# Optional Vietnamese-stock collector dependency.
+#
+# PyPI placed the `vnstock` project in quarantine (September 2026) and its
+# `vnai` dependency was removed, so `pip install vnstock` no longer resolves.
+# The package also writes an AGENTS.md prompt file into the working directory
+# at runtime. Install it only on a machine you accept that risk for, from a
+# source you have reviewed, e.g.:
+#
+#   pip install -r services/ingestion/requirements-vnstock.txt
+#
+# Without it, VNStockAdapter returns no rows and the stock ingestion task logs
+# the missing dependency; the locked dataset snapshot still provides stock data.
+vnstock>=2.0.0

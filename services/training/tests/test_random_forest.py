@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import inspect
+import json
 import logging
 import subprocess
 import sys
@@ -616,6 +617,7 @@ def test_training_keeps_mlflow_csv_and_artifact_run_ids_consistent(
     )
     mlflow_call: dict[str, Any] = {}
     artifact_call: dict[str, Any] = {}
+    explain_call: dict[str, Any] = {}
 
     class StubModel:
         def predict(self, features: pd.DataFrame) -> np.ndarray:
@@ -695,6 +697,19 @@ def test_training_keeps_mlflow_csv_and_artifact_run_ids_consistent(
         "_log_csv_artifacts",
         fake_log_csv_artifacts,
     )
+
+    def fake_log_explainability_artifact(
+        run_id: str,
+        model: Any,
+        features: pd.DataFrame,
+    ) -> None:
+        explain_call.update(run_id=run_id, model=model, n_rows=len(features))
+
+    monkeypatch.setattr(
+        train_random_forest,
+        "_log_explainability_artifact",
+        fake_log_explainability_artifact,
+    )
     monkeypatch.setattr(
         train_random_forest,
         "PREDICTION_ROOT",
@@ -719,6 +734,10 @@ def test_training_keeps_mlflow_csv_and_artifact_run_ids_consistent(
     summary_frame = pd.read_csv(summary_path)
     if artifact_call["run_id"] != expected_run_id:
         pytest.fail("MLflow CSV artifacts were attached to a different run")
+    if explain_call["run_id"] != expected_run_id:
+        pytest.fail("SHAP artifact was attached to a different run")
+    if explain_call["n_rows"] != len(expected_predictions):
+        pytest.fail("SHAP must be computed on the test feature matrix")
     if not prediction_frame["run_id"].eq(expected_run_id).all():
         pytest.fail("Prediction CSV contains an inconsistent run ID")
     if not summary_frame["run_id"].eq(expected_run_id).all():
@@ -744,6 +763,83 @@ def test_random_forest_model_save_load_roundtrip(tmp_path: Path) -> None:
     restored = RandomForestModelWrapper(_model_params())
     restored.load(model_path)
     np.testing.assert_allclose(restored.predict(X_test), expected)
+
+
+def _fitted_toy_forest() -> tuple[RandomForestModelWrapper, pd.DataFrame]:
+    X_train = pd.DataFrame(
+        {"signal": np.arange(30.0), "noise": np.cos(np.arange(30.0))}
+    )
+    y_train = pd.Series(100.0 + 2.0 * np.arange(30.0), name="next_close")
+    model = RandomForestModelWrapper(_model_params())
+    model.fit(X_train, y_train)
+    return model, X_train
+
+
+def test_shap_values_are_additive_to_the_forest_prediction() -> None:
+    model, X_train = _fitted_toy_forest()
+    shap_values = model.calculate_shap_values(X_train)
+    assert shap_values.shape == X_train.shape
+    base_value = float(np.ravel(model.explainer.expected_value)[0])
+    np.testing.assert_allclose(
+        shap_values.sum(axis=1) + base_value,
+        model.predict(X_train),
+        rtol=1e-6,
+        atol=1e-6,
+    )
+
+
+def test_shap_explainer_is_lazy_and_reset_on_refit() -> None:
+    model, X_train = _fitted_toy_forest()
+    assert model.explainer is None
+    model.calculate_shap_values(X_train)
+    first_explainer = model.explainer
+    model.calculate_shap_values(X_train)
+    assert model.explainer is first_explainer
+    model.fit(X_train, pd.Series(np.arange(30.0)))
+    assert model.explainer is None
+
+
+def test_explainability_payload_structure() -> None:
+    model, X_train = _fitted_toy_forest()
+    payload = train_random_forest.build_explainability_payload(model, X_train)
+
+    assert payload["method"] == "shap_tree_explainer"
+    assert payload["model"] == train_random_forest.MODEL_NAME
+    assert payload["feature_list"] == ["signal", "noise"]
+    assert payload["n_samples"] == len(X_train)
+    by_name = {item["feature"]: item for item in payload["features"]}
+    assert by_name["signal"]["mean_abs_shap"] > by_name["noise"]["mean_abs_shap"]
+    assert sum(item["importance"] for item in payload["features"]) == pytest.approx(1.0)
+    json.dumps(payload)
+
+
+def test_explainability_artifact_is_logged_to_the_training_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import mlflow
+
+    started_run_ids: list[str] = []
+    logged: dict[str, dict[str, Any]] = {}
+
+    @contextmanager
+    def fake_start_run(*, run_id: str) -> Iterator[None]:
+        started_run_ids.append(run_id)
+        yield
+
+    def fake_log_dict(payload: dict[str, Any], artifact_file: str) -> None:
+        logged[artifact_file] = payload
+
+    monkeypatch.setattr(mlflow, "start_run", fake_start_run)
+    monkeypatch.setattr(mlflow, "log_dict", fake_log_dict)
+    model, X_train = _fitted_toy_forest()
+
+    train_random_forest._log_explainability_artifact("run-explain", model, X_train)
+
+    assert started_run_ids == ["run-explain"]
+    assert list(logged) == [train_random_forest.EXPLAIN_ARTIFACT_NAME]
+    assert logged[train_random_forest.EXPLAIN_ARTIFACT_NAME]["n_samples"] == len(
+        X_train
+    )
 
 
 def test_issue_does_not_add_optuna_tuning() -> None:

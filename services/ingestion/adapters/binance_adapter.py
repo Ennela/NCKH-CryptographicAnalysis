@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List
 import ccxt
 from shared.schemas.ohlcv import OHLCVCreate
@@ -52,7 +52,10 @@ class BinanceAdapter:
 
             ohlcv_list = []
             for candle in raw_candles:
-                ts = datetime.fromtimestamp(candle[0] / 1000.0)
+                # Binance open times are epoch ms in UTC. Build an aware UTC
+                # datetime directly: a naive fromtimestamp() uses the host's
+                # local zone, which shifted candles by +7h on UTC+7 machines.
+                ts = datetime.fromtimestamp(candle[0] / 1000.0, tz=timezone.utc)
                 ohlcv_list.append(
                     OHLCVCreate(
                         timestamp=to_utc(ts),

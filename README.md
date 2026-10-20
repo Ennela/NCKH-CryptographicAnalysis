@@ -52,7 +52,7 @@ NCKH/
 │
 ├── infra/
 │   ├── postgres/init.sql             # Khởi tạo DB, TimescaleDB, Hypertables
-│   └── nginx/nginx.conf              # Reverse Proxy cho Production
+│   └── nginx/templates/              # Reverse Proxy cho Production (xem docs/deploy.md)
 │
 ├── configs/
 │   └── group_dataset.json            # Contract dataset chính thức cho XGBoost
@@ -125,10 +125,6 @@ NCKH/
 │   │   └── navbar.tsx                # Thanh điều hướng
 │   ├── Dockerfile
 │   └── package.json
-│
-├── api/                              # Collector cũ (đang gộp vào services/ingestion)
-│   ├── binance_fastapi/              #   ↳ API thu thập Binance (legacy)
-│   └── vnstock_fastapi/              #   ↳ API thu thập vnstock (legacy)
 │
 ├── scripts/
 │   ├── backfill.py                   # Backfill dữ liệu lịch sử

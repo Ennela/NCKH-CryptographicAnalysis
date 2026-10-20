@@ -196,3 +196,64 @@ def run_clean_and_store(
             str(e),
         )
         raise e
+
+
+AUDIT_RAW_QUERY = text(
+    "SELECT symbol_id, timeframe, ts, open, high, low, close, volume, source, ingested_at "
+    "FROM market.ohlcv_raw "
+    "WHERE symbol_id = :symbol_id AND timeframe = :timeframe "
+    "ORDER BY ts ASC"
+)
+
+
+def audit_cleaning(db: Session, symbol_id: int, timeframe: str) -> dict[str, Any]:
+    """Run the cleaning steps over the whole raw history without writing bars.
+
+    ``run_clean_and_store`` only processes raw bars newer than the last clean
+    bar, so data loaded by snapshot import or backfill has never been through
+    it. This audit replays the same ``clean_ohlcv`` steps on every raw bar and
+    records the report in ``ops.data_quality_check`` (check_name
+    ``cleaning_pipeline``, ``detail.mode = "audit"``) so the result can be
+    shown and cited. ``market.ohlcv`` is left untouched: persisting would
+    forward-fill new bars into the fingerprinted snapshot window.
+
+    Args:
+        db: Sync SQLAlchemy session (the caller commits).
+        symbol_id: ``market.symbol.id``.
+        timeframe: ``'1d'`` or ``'1h'``.
+
+    Returns:
+        The cleaning report plus ``mode``/``persisted`` flags, or
+        ``{"status": "no_raw_data"}`` when there is nothing to audit.
+    """
+    symbol_row = db.execute(
+        text("SELECT asset_class FROM market.symbol WHERE id = :id"),
+        {"id": symbol_id},
+    ).fetchone()
+    if not symbol_row:
+        raise ValueError(f"Không tìm thấy symbol có id={symbol_id}")
+
+    raw_rows = db.execute(
+        AUDIT_RAW_QUERY, {"symbol_id": symbol_id, "timeframe": timeframe}
+    ).fetchall()
+    if not raw_rows:
+        return {"status": "no_raw_data"}
+
+    raw_df = pd.DataFrame([dict(row._mapping) for row in raw_rows])
+    _cleaned, report = clean_ohlcv(raw_df, asset_class=symbol_row[0])
+    detail = {**report.to_dict(), "mode": "audit", "persisted": False}
+
+    record_dq_check(
+        db=db,
+        symbol_id=symbol_id,
+        timeframe=timeframe,
+        check_name="cleaning_pipeline",
+        passed=report.outliers_flagged == 0,
+        ts_start=raw_rows[0].ts,
+        ts_end=raw_rows[-1].ts,
+        detail=detail,
+    )
+    logger.info(
+        "Cleaning audit symbol_id=%d %s: %s", symbol_id, timeframe, report.to_dict()
+    )
+    return detail

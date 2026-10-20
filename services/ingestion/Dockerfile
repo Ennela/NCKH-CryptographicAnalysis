@@ -18,6 +18,17 @@ RUN pip install --no-cache-dir -e /app/shared
 COPY services/ingestion /app/services/ingestion
 RUN pip install --no-cache-dir -r /app/services/ingestion/requirements.txt
 
+# vnstock is optional (quarantined on PyPI, see requirements-vnstock.txt).
+# Build with `--build-arg INSTALL_VNSTOCK=true` to try installing it.
+ARG INSTALL_VNSTOCK=false
+RUN if [ "$INSTALL_VNSTOCK" = "true" ]; then \
+        pip install --no-cache-dir -r /app/services/ingestion/requirements-vnstock.txt; \
+    fi
+
+# `import shared...` resolves from /app (the editable install above exposes no
+# top-level `shared` package). docker-compose.yml sets the same for dev.
+ENV PYTHONPATH=/app
+
 WORKDIR /app/services/ingestion
 
 EXPOSE 8001

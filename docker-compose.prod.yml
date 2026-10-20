@@ -34,9 +34,18 @@ services:
     image: ghcr.io/mlflow/mlflow:v2.11.3
     container_name: forecast_mlflow_prod
     restart: always
-    command: mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:///mlflow.db --default-artifact-root /mlflow/artifacts
+    # Absolute path: the run/registry database must live on the volume, not in
+    # the image's working directory, or it is lost when the container is recreated.
+    command: mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:////mlflow/mlflow.db --default-artifact-root /mlflow/artifacts
     volumes:
       - mlflow_prod_data:/mlflow
+    # training/inference wait for `service_healthy`; without a healthcheck
+    # `docker compose up` aborts with "has no healthcheck configured".
+    healthcheck:
+      test: [ "CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5000/health')\" || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   ingestion:
     build:
@@ -46,6 +55,49 @@ services:
     restart: always
     environment:
       - ENV=production
+      - DEBUG=${DEBUG:-false}
+      - DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://redis:6379/0
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - SENTRY_DSN=${SENTRY_DSN}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery-worker:
+    build:
+      context: .
+      dockerfile: services/ingestion/Dockerfile
+    container_name: forecast_celery_worker_prod
+    restart: always
+    command: celery -A celery_app worker --loglevel=info
+    environment:
+      - ENV=production
+      - DEBUG=${DEBUG:-false}
+      - DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://redis:6379/0
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - SENTRY_DSN=${SENTRY_DSN}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery-beat:
+    build:
+      context: .
+      dockerfile: services/ingestion/Dockerfile
+    container_name: forecast_celery_beat_prod
+    restart: always
+    command: celery -A celery_app beat --loglevel=info
+    environment:
+      - ENV=production
+      - DEBUG=${DEBUG:-false}
       - DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       - REDIS_URL=redis://redis:6379/0
       - REDIS_HOST=redis
@@ -63,8 +115,11 @@ services:
       dockerfile: services/training/Dockerfile
     container_name: forecast_training_prod
     restart: on-failure
+    volumes:
+      - mlflow_prod_data:/mlflow
     environment:
       - ENV=production
+      - DEBUG=${DEBUG:-false}
       - DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       - MLFLOW_TRACKING_URI=http://mlflow:5000
       - SENTRY_DSN=${SENTRY_DSN}
@@ -80,8 +135,11 @@ services:
       dockerfile: services/inference/Dockerfile
     container_name: forecast_inference_prod
     restart: always
+    volumes:
+      - mlflow_prod_data:/mlflow
     environment:
       - ENV=production
+      - DEBUG=${DEBUG:-false}
       - DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       - REDIS_URL=redis://redis:6379/0
       - REDIS_HOST=redis
@@ -89,6 +147,11 @@ services:
       - MLFLOW_TRACKING_URI=http://mlflow:5000
       - API_KEY_SECRET=${API_KEY_SECRET}
       - SENTRY_DSN=${SENTRY_DSN}
+    # Behind nginx every request comes from the nginx container. --proxy-headers
+    # makes request.client.host the visitor address nginx puts in
+    # X-Forwarded-For, so the rate limiter counts per visitor. Trusting any
+    # forwarder is safe only because port 8000 is not published to the host.
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]
     expose:
       - "8000"
     depends_on:
@@ -103,8 +166,13 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      target: prod
       args:
-        - NEXT_PUBLIC_API_URL=/api/v1
+        # Empty = same origin: the browser calls /api/v1/... on the nginx host
+        # (lib/api.ts already prefixes every path with /api/v1). nginx adds the
+        # API key, so NEXT_PUBLIC_API_KEY is deliberately not passed and the key
+        # never reaches the browser bundle.
+        - NEXT_PUBLIC_API_URL=
     container_name: forecast_frontend_prod
     restart: always
     environment:
@@ -118,14 +186,30 @@ services:
     image: nginx:alpine
     container_name: forecast_nginx_prod
     restart: always
+    # HTTP only. HTTPS is terminated in front of nginx: by Cloudflare when the
+    # `tunnel` profile is used, or by a host-level proxy/certbot on a server
+    # (see docs/deploy.md). NGINX_HTTP_PORT lets the host port differ from 80.
     ports:
-      - "80:80"
-      - "443:443"
+      - "${NGINX_HTTP_PORT:-80}:80"
+    environment:
+      - API_KEY_SECRET=${API_KEY_SECRET}
     volumes:
-      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./infra/nginx/templates:/etc/nginx/templates:ro
     depends_on:
       - frontend
       - inference
+
+  # Optional public URL without opening any port: a Cloudflare quick tunnel.
+  # Start with `--profile tunnel`; the https://*.trycloudflare.com address is
+  # printed in `docker compose logs cloudflared`. See docs/deploy.md.
+  cloudflared:
+    image: cloudflare/cloudflared:2024.12.2
+    container_name: forecast_cloudflared_prod
+    profiles: ["tunnel"]
+    restart: unless-stopped
+    command: ["tunnel", "--no-autoupdate", "--url", "http://nginx:80"]
+    depends_on:
+      - nginx
 
 volumes:
   postgres_prod_data:
