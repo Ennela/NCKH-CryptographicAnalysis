@@ -86,9 +86,9 @@ khởi động lại inference. Dùng `--skip-train` để bỏ bước train; �
 
 Sau đó mở `http://<máy chủ>:<NGINX_HTTP_PORT>/`.
 
-**Giới hạn đã biết:** gói `vnstock` đang bị PyPI cách ly nên image ingestion mặc
-định không cài; dữ liệu cổ phiếu dừng ở cuối snapshot, chỉ crypto tự cập nhật
-theo lịch. Xem `docs/dataset.md`.
+Cổ phiếu được thu thập từ Vietcap (không cần `vnstock`); lần đầu sau snapshot
+chạy `python -m scripts.backfill_vnstock` (trong container `ingestion`) để lấy
+lại lịch sử đã điều chỉnh. Xem `docs/dataset.md`.
 
 ## 5. Mở ra Internet bằng Cloudflare Tunnel (demo)
 

@@ -30,8 +30,38 @@ Quyết định của nhóm:
   qua `ccxt`) không bị ảnh hưởng.
 - Dữ liệu cổ phiếu cho thí nghiệm vẫn lấy từ snapshot đã khóa
   (`group_dataset_v1`), nên kết quả benchmark không thay đổi.
-- Hướng lâu dài (chưa làm): viết adapter gọi trực tiếp API công khai của
-  sàn/CTCK thay cho `vnstock`.
+- Hướng lâu dài: viết adapter gọi trực tiếp API công khai thay cho `vnstock`
+  — **đã làm 20/10/2026**, xem mục dưới.
+
+## Nguồn cổ phiếu VN từ 2026-10-20: `VietcapAdapter`
+
+`services/ingestion/adapters/vietcap_adapter.py` gọi thẳng endpoint biểu đồ
+công khai của Vietcap (`trading.vietcap.com.vn`, chính là nguồn "VCI" mà
+`vnstock` dùng) bằng `httpx`, không cần thêm thư viện. `ingest_stocks_task` và
+`scripts/backfill_vnstock.py` dùng adapter này. Ngày 20/10/2026 đã thử VNDirect
+(không trả dữ liệu) và TCBS (bị Cloudflare chặn); chỉ Vietcap dùng được.
+
+- **Giá đã điều chỉnh** cổ tức/chia tách tính đến ngày gọi, đơn vị đồng; adapter
+  chia 1000 để giữ đơn vị nghìn đồng như dữ liệu cũ. So với dữ liệu đã lưu
+  (24/05/2024 – 08/07/2026), cả 15 mã khớp đủ 530 phiên và tỉ lệ mới/cũ **không
+  đổi** trên toàn chuỗi, ví dụ FPT 0,9091, MBB 0,8009, SSI 0,7993, VHM 0,5000
+  (chia tách 2:1); ACB, HPG, MSN, TCB, VIC, VNM bằng 1. Nghĩa là các sự kiện
+  điều chỉnh xảy ra sau 08/07 và chuỗi mới là chuỗi cũ nhân một hằng số.
+- Vì hệ số điều chỉnh đổi sau mỗi sự kiện, `ingest_stocks_task` luôn lấy lùi tới
+  nến cuối đã lưu; nếu giá ngày trùng lệch quá 0,5 % thì lấy lại **toàn bộ** lịch
+  sử của mã đó, để chuỗi không có bước nhảy giả. Không có dữ liệu → job
+  `failed` (không ghi đè dữ liệu cũ).
+- Cột `source` vẫn ghi `vnstock` (enum `market.data_source` không có giá trị
+  khác; tránh đổi schema). Gói `vnstock` không còn được dùng.
+- **Không ảnh hưởng thí nghiệm:** huấn luyện đọc snapshot đã khóa (tệp có
+  fingerprint), không đọc DB; mô hình demo giữ nguyên như kết quả báo cáo.
+- **Giới hạn:** mô hình cây (XGBoost, Random Forest) dự báo mức giá nên không
+  ngoại suy ra ngoài khoảng giá lúc huấn luyện. Ngày 20/10/2026 FPT đóng cửa
+  57,4 (đã điều chỉnh), dưới mức thấp nhất của tập huấn luyện (62,77), và hai
+  mô hình này dự báo khoảng 89–92; ARIMA và GRU vẫn bám giá. Các mã ACB, HPG,
+  VCB, VNM không bị.
+- API không chính thức, có thể đổi hoặc chặn bất cứ lúc nào; khi đó job ghi
+  `failed` và dữ liệu đã có được giữ nguyên.
 
 ## Mốc thời gian crypto trong snapshot lệch +7 giờ (phát hiện 2026-09-28)
 

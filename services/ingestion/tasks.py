@@ -18,7 +18,7 @@ from shared.db.repositories.market_repo import (
     record_dq_check,
 )
 from adapters.binance_adapter import BinanceAdapter
-from adapters.vnstock_adapter import VNStockAdapter
+from adapters.vietcap_adapter import VietcapAdapter
 
 # Safe imports for pipeline processing module
 try:
@@ -133,7 +133,15 @@ def ingest_crypto_task(symbols: List[str], resolution: str = "1h") -> int:
 
                     update_job(db, job_id, "success", rows_affected=affected_clean)
                 else:
-                    update_job(db, job_id, "success", rows_affected=0)
+                    # A 30-day window always holds sessions: empty means the
+                    # source was unreachable or changed its format.
+                    update_job(
+                        db,
+                        job_id,
+                        "failed",
+                        rows_affected=0,
+                        error_message="no data returned by Vietcap",
+                    )
 
                 db.commit()
                 logger.info(f"Upserted records for {symbol}")
@@ -156,17 +164,21 @@ def ingest_crypto_task(symbols: List[str], resolution: str = "1h") -> int:
 @celery_app.task
 def ingest_stocks_task(symbols: List[str], resolution: str = "1d") -> int:
     """
-    Celery task to fetch latest Vietnamese stock prices from vnstock and upsert to database.
+    Celery task to fetch latest Vietnamese stock prices from Vietcap and upsert to database.
+
+    Vietcap prices are adjusted for dividends/splits. When the overlap with the
+    stored series shows a new adjustment, the whole history of that symbol is
+    refetched so the series has no artificial jump.
     """
     logger.info(f"Starting stock ingestion task for {symbols} ({resolution})")
-    adapter = VNStockAdapter()
+    adapter = VietcapAdapter()
     db = SessionLocal()
     count = 0
 
     try:
-        # Stock market data is usually pulled for the last few days to handle weekends/holidays
+        # 30 days covers weekends, holidays and a stack that was down for a while
         end_date = now_utc().date()
-        start_date = end_date - timedelta(days=7)
+        start_date = end_date - timedelta(days=30)
 
         # Ensure exchange exists
         exchange_id = ensure_exchange(
@@ -188,26 +200,36 @@ def ingest_stocks_task(symbols: List[str], resolution: str = "1d") -> int:
             )
             db.commit()
 
-            if not adapter.available:
-                # Record the real outcome instead of "success, 0 rows".
-                update_job(
-                    db,
-                    job_id,
-                    "skipped",
-                    rows_affected=0,
-                    error_message="vnstock not installed (optional dependency, "
-                    "quarantined on PyPI) — see docs/dataset.md",
-                )
-                db.commit()
-                continue
-
             try:
+                # Reach back to the last stored bar so the window always
+                # overlaps the stored series (needed to detect re-adjustment).
+                last_ts = db.execute(
+                    text(
+                        "SELECT max(ts) FROM market.ohlcv "
+                        "WHERE symbol_id = :sid AND timeframe = :tf"
+                    ),
+                    {"sid": symbol_id, "tf": resolution},
+                ).scalar()
+                window_start = (
+                    min(start_date, last_ts.date()) if last_ts else start_date
+                )
                 candles = adapter.fetch_historical_ohlcv(
                     symbol=symbol,
-                    start_date=start_date,
+                    start_date=window_start,
                     end_date=end_date,
                     resolution=resolution,
                 )
+                history_start = _readjust_start(db, symbol_id, resolution, candles)
+                if history_start is not None:
+                    logger.info(
+                        f"{symbol}: price adjustment changed, refetching history"
+                    )
+                    candles = adapter.fetch_historical_ohlcv(
+                        symbol=symbol,
+                        start_date=history_start,
+                        end_date=end_date,
+                        resolution=resolution,
+                    )
 
                 if candles:
                     rows = []
@@ -226,6 +248,8 @@ def ingest_stocks_task(symbols: List[str], resolution: str = "1d") -> int:
                         )
 
                     # Map and validate
+                    # Source stays 'vnstock' (enum market.data_source): Vietcap is
+                    # the upstream vnstock's VCI source used; no schema change.
                     raw_rows = [
                         {**r, "source": "vnstock", "raw_payload": None} for r in rows
                     ]
@@ -258,7 +282,15 @@ def ingest_stocks_task(symbols: List[str], resolution: str = "1d") -> int:
 
                     update_job(db, job_id, "success", rows_affected=affected_clean)
                 else:
-                    update_job(db, job_id, "success", rows_affected=0)
+                    # A 30-day window always holds sessions: empty means the
+                    # source was unreachable or changed its format.
+                    update_job(
+                        db,
+                        job_id,
+                        "failed",
+                        rows_affected=0,
+                        error_message="no data returned by Vietcap",
+                    )
 
                 db.commit()
                 logger.info(f"Upserted records for {symbol}")
@@ -272,9 +304,36 @@ def ingest_stocks_task(symbols: List[str], resolution: str = "1d") -> int:
     except Exception as e:
         logger.error(f"Failed to setup stock ingestion: {str(e)}")
     finally:
+        adapter.close()
         db.close()
 
     return count
+
+
+ADJUSTMENT_TOLERANCE = 0.005  # 0.5 % difference on a stored day = a new adjustment
+
+
+def _readjust_start(db, symbol_id: int, timeframe: str, candles: list) -> Any:
+    """Return the first stored day if the fetched prices are re-adjusted, else None.
+
+    Compares the oldest fetched candle with the stored close of the same day.
+    """
+    if not candles:
+        return None
+    row = db.execute(
+        text(
+            "SELECT close, (SELECT min(ts) FROM market.ohlcv "
+            "WHERE symbol_id = :sid AND timeframe = :tf) "
+            "FROM market.ohlcv WHERE symbol_id = :sid AND timeframe = :tf AND ts = :ts"
+        ),
+        {"sid": symbol_id, "tf": timeframe, "ts": candles[0].timestamp},
+    ).fetchone()
+    if row is None or not row[0]:
+        return None
+    stored_close, first_ts = float(row[0]), row[1]
+    if abs(candles[0].close / stored_close - 1) <= ADJUSTMENT_TOLERANCE:
+        return None
+    return first_ts.date()
 
 
 @celery_app.task(bind=True, max_retries=3)

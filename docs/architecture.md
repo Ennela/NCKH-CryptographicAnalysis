@@ -13,7 +13,7 @@ graph TD
     %% External Data Sources
     subgraph Nguon_Du_Lieu [Nguồn Dữ Liệu Ngoại Vi]
         Binance[Binance REST API via ccxt]
-        VNStock[VNStock Library]
+        VNStock[Vietcap chart API]
     end
 
     %% Ingestion Service
@@ -121,7 +121,7 @@ Lưu trữ lịch sử dự đoán của mô hình để đánh giá hiệu năn
 
 1.  **Thu thập (Ingestion)**:
     *   `Celery Beat` kích hoạt định kỳ mỗi giờ (`1h` cho crypto) hoặc mỗi ngày (`1d` cho cổ phiếu & crypto).
-    *   Worker gọi API Binance hoặc thư viện `vnstock` để cào dữ liệu mới nhất.
+    *   Worker gọi API Binance (qua `ccxt`) hoặc API biểu đồ Vietcap (cổ phiếu VN) để lấy dữ liệu mới nhất.
     *   Dữ liệu được làm sạch, chuyển đổi múi giờ sang UTC, và thực hiện câu lệnh `UPSERT` vào TimescaleDB.
 2.  **Huấn luyện (Training)**:
     *   Nhà nghiên cứu chạy kịch bản huấn luyện (VD: `train_xgboost.py` cho XGBoost).
