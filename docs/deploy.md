@@ -167,3 +167,67 @@ API mở cho mọi người.
 
 Dữ liệu nằm trong các volume `postgres_prod_data`, `redis_prod_data`,
 `mlflow_prod_data`; `down` không xóa chúng, `down -v` thì có.
+
+## 9. Chạy trên server nhỏ dùng chung (chỉ chạy, build ở máy trạm)
+
+Dùng khi server yếu (ví dụ 1 vCPU, khoảng 2 GB RAM trống) và đang chạy dự án
+khác. Tệp `docker-compose.server.yml` không build gì; so với bản prod:
+
+- bỏ `training` (huấn luyện ở máy trạm rồi chép volume MLflow) và `ingestion`
+  API (thu thập theo lịch vẫn do `celery-worker` + `celery-beat` chạy);
+- Celery 1 tiến trình, MLflow 1 worker, mỗi container có `mem_limit`;
+- không đặt `container_name`, tên lấy theo project `-p nckh` nên không trùng
+  container của người khác; nginx chỉ mở `127.0.0.1:${NGINX_HTTP_PORT:-18088}`.
+
+Image đi qua một registry trên máy trạm (`127.0.0.1:5000`, container
+`nckh-registry`, volume `nckh_registry` giữ các lớp làm cache). Server kéo image
+qua đường hầm SSH ngược (`ssh -R`) mở trong lúc pull, nên server không cần
+registry, token hay mở cổng; từ lần thứ hai chỉ các lớp thay đổi được gửi.
+
+**Quy tắc khi server dùng chung:** chỉ thao tác project `nckh`
+(`docker compose -p nckh ...`); không `stop`/`rm`/`restart` container khác, không
+`docker system prune` hay `docker ... prune`.
+
+### 9.1. Triển khai và cập nhật
+
+Tạo `.env.server` (không commit, đã nằm trong `.gitignore` qua `.env.*`) chứa
+`POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `API_KEY_SECRET`,
+`SENTRY_DSN`, `TUNNEL_TOKEN`. Rồi từ thư mục gốc repo:
+
+```bash
+SERVER=user@host SSH_KEY=~/.ssh/server.pem scripts/deploy_server.sh
+```
+
+Script build `celery-worker`, `inference`, `frontend` bằng
+`docker-compose.prod.yml`, đẩy 8 image lên registry máy trạm, chép
+`docker-compose.server.yml`, `infra/nginx/templates`, `infra/postgres/init.sql`
+và `.env` vào `~/nckh` trên server, rồi `pull` + `up -d`. `SKIP_BUILD=1` để dùng
+lại image đã build; `PROFILE_ARGS="--profile tunnel"` để bật cả `cloudflared`.
+
+### 9.2. Lần đầu: chép dữ liệu từ máy trạm
+
+Postgres và MLflow chép nguyên volume (cùng image TimescaleDB nên tương thích).
+Trên máy trạm, dừng ngắn các dịch vụ ghi dữ liệu rồi đóng gói:
+
+```bash
+docker compose -p nckh-prod -f docker-compose.prod.yml stop celery-beat celery-worker ingestion inference mlflow postgres
+for v in postgres_prod_data mlflow_prod_data; do
+  docker run --rm -v nckh-prod_$v:/src:ro -v "$PWD":/out alpine:3.20 tar -C /src -czf /out/$v.tgz .
+done
+docker compose -p nckh-prod -f docker-compose.prod.yml up -d
+```
+
+Chép hai tệp `.tgz` lên server và giải nén vào volume `nckh_postgres_data`,
+`nckh_mlflow_data` **trước** lần `up` đầu tiên (nếu Postgres đã khởi tạo volume
+rỗng thì `down` project `nckh` rồi xóa đúng hai volume đó trước khi giải nén).
+
+### 9.3. Chuyển tunnel sang server
+
+Hai connector dùng cùng token thì Cloudflare chia request cho cả hai. Kiểm tra
+server qua SSH trước (`curl http://127.0.0.1:18088/health`), rồi:
+
+1. Máy trạm: `docker compose -p nckh-prod -f docker-compose.prod.yml -f docker-compose.tunnel.yml --profile tunnel stop cloudflared`.
+2. Server: `docker compose -p nckh -f docker-compose.server.yml --profile tunnel up -d cloudflared`.
+
+Quay lại máy trạm thì làm ngược lại. Stack máy trạm (không có `cloudflared`) có
+thể để chạy làm phương án dự phòng.
