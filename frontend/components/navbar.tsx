@@ -11,6 +11,7 @@ const LINKS = [
   { href: "/forecast", label: "Dự báo AI" },
   { href: "/explainability", label: "Giải thích mô hình" },
   { href: "/pipeline", label: "Thu thập & Làm sạch" },
+  { href: "/about", label: "Giới thiệu" },
 ];
 
 export default function Navbar() {
