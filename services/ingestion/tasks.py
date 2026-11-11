@@ -140,7 +140,7 @@ def ingest_crypto_task(symbols: List[str], resolution: str = "1h") -> int:
                         job_id,
                         "failed",
                         rows_affected=0,
-                        error_message="no data returned by Vietcap",
+                        error_message="no data returned by Binance",
                     )
 
                 db.commit()

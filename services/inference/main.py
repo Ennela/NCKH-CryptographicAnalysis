@@ -488,7 +488,7 @@ def explain_model(
         raise HTTPException(
             status_code=404,
             detail=(
-                f"Model '{registry_name}' has no SHAP explainability artifact. "
+                f"Model '{registry_name}' has no explainability artifact. "
                 "Re-run its training entrypoint to generate one."
             ),
         ) from exc
