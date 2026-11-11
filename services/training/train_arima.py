@@ -11,6 +11,7 @@ import logging
 import random
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -37,6 +38,7 @@ RMSE_TOLERANCE = 1e-12
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PREDICTION_ROOT = REPO_ROOT / "artifacts" / "predictions" / MODEL_NAME
 SUMMARY_ROOT = REPO_ROOT / "artifacts" / "metrics" / MODEL_NAME
+EXPLAIN_ARTIFACT_NAME = "explainability/feature_importance.json"
 
 PAIR_FIELDNAMES: tuple[str, ...] = (
     "input_ts",
@@ -802,6 +804,42 @@ def _write_and_log_outputs(
     _log_run_artifacts(run_id, prediction_path, summary_path)
 
 
+def build_explainability_payload(model: ARIMABaseline) -> dict[str, Any]:
+    """Build the coefficient payload served by /api/v1/explain.
+
+    ARIMA is univariate (close only), so there are no input features to rank.
+    Its explanation is the estimated parameter table instead. Input: the
+    fitted pre-test model. Output: JSON-safe dict where importance is
+    |coefficient| and the signed value, standard error and p-value are kept.
+    """
+    return {
+        "method": "arima_coefficients",
+        "model": MODEL_NAME,
+        "order": list(model.order),
+        "n_observations": model.observation_count,
+        "feature_list": [row["name"] for row in model.coefficient_table()],
+        "features": [
+            {
+                "feature": row["name"],
+                "importance": abs(float(row["coefficient"])),
+                "coefficient": row["coefficient"],
+                "std_error": row["std_error"],
+                "p_value": row["p_value"],
+            }
+            for row in model.coefficient_table()
+        ],
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _log_explainability_artifact(run_id: str, model: ARIMABaseline) -> None:
+    """Attach the coefficient payload to the run for /api/v1/explain."""
+    import mlflow
+
+    with mlflow.start_run(run_id=run_id):
+        mlflow.log_dict(build_explainability_payload(model), EXPLAIN_ARTIFACT_NAME)
+
+
 def run_training(args: argparse.Namespace) -> str:
     """Execute locked-data ARIMA rolling evaluation and artifact export."""
     set_random_seed(args.seed)
@@ -848,6 +886,7 @@ def run_training(args: argparse.Namespace) -> str:
         run_id,
         args.seed,
     )
+    _log_explainability_artifact(run_id, pre_test_model)
     logger.info(
         "ARIMA rolling benchmark completed: run_id=%s manifest=%s samples=%d",
         run_id,

@@ -3,6 +3,8 @@ import logging
 import time
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+
+from sqlalchemy import text
 from shared.utils.logging import setup_logging
 from shared.db.session import SessionLocal
 from shared.db.mappers import split_crypto_pair
@@ -40,7 +42,40 @@ def parse_args():
         default="1d",
         help="Resolution: 1h or 1d",
     )
+    parser.add_argument(
+        "--start",
+        type=_parse_utc,
+        default=None,
+        help="Crypto only: backfill from this UTC time (e.g. 2026-07-09T02:00) "
+        "instead of --days ago",
+    )
+    parser.add_argument(
+        "--skip-existing",
+        action="store_true",
+        help="Crypto only: insert missing bars only; never overwrite stored bars "
+        "(keeps the fingerprinted snapshot window untouched)",
+    )
     return parser.parse_args()
+
+
+def _parse_utc(value: str) -> datetime:
+    """Parse an ISO date/time argument as UTC (naive input is taken as UTC)."""
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _existing_timestamps(db, symbol_id: int, timeframe: str, since: datetime) -> set:
+    """Timestamps already stored in market.ohlcv for a symbol from `since` on."""
+    rows = db.execute(
+        text(
+            "SELECT ts FROM market.ohlcv "
+            "WHERE symbol_id = :symbol_id AND timeframe = :timeframe AND ts >= :since"
+        ),
+        {"symbol_id": symbol_id, "timeframe": timeframe, "since": since},
+    ).fetchall()
+    return {row[0] for row in rows}
 
 
 def run_backfill():
@@ -83,7 +118,9 @@ def run_backfill():
 
             try:
                 adapter = BinanceAdapter()
-                since_time = datetime.now(timezone.utc) - timedelta(days=args.days)
+                since_time = args.start or (
+                    datetime.now(timezone.utc) - timedelta(days=args.days)
+                )
                 cursor_ms = int(since_time.timestamp() * 1000)
 
                 # Pagination loop: CCXT returns max 1000 candles per call.
@@ -111,6 +148,17 @@ def run_backfill():
                     if len(batch) < 1000:
                         break  # No more data available
                     time.sleep(0.5)  # Rate limit between batches
+
+                if args.skip_existing and candles:
+                    stored = _existing_timestamps(
+                        db, symbol_id, args.resolution, since_time
+                    )
+                    kept = [c for c in candles if c.timestamp not in stored]
+                    logger.info(
+                        f"  --skip-existing: {len(candles) - len(kept)} bars already "
+                        f"stored, {len(kept)} new"
+                    )
+                    candles = kept
 
                 if candles:
                     rows = []

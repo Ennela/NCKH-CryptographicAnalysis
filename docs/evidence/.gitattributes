@@ -1,0 +1,3 @@
+# Evidence files must stay byte-identical to their recorded SHA-256 checksums.
+# Disable all end-of-line conversion for everything in docs/evidence/.
+* -text

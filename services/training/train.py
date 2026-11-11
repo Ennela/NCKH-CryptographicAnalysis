@@ -64,7 +64,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--model",
         type=str,
-        choices=["arima", "xgboost", "random_forest", "gru", "lstm"],
+        choices=["arima", "xgboost", "random_forest", "gru"],
         default="xgboost",
         help="Algorithm to train",
     )
@@ -342,15 +342,15 @@ def run_pipeline() -> None:
         trained_model = rf_wrapper.model
         preds = rf_wrapper.predict(X_test)
 
-    elif args.model in ("gru", "lstm"):
+    elif args.model == "gru":
         # TODO: Implement full PyTorch training loop.
         # Requires: TimeSeriesDataset, DataLoader, train/eval loop,
         # scaler (fit on train only), create_sequences(), early stopping.
         # See models/nn_models.py for GRUForecaster and create_sequences().
         raise NotImplementedError(
-            f"{args.model.upper()} training loop is not yet implemented. "
-            f"See services/training/models/nn_models.py for the model class "
-            f"and create_sequences() helper. Contributions welcome!"
+            "GRU training loop is not yet implemented. "
+            "See services/training/models/nn_models.py for the model class "
+            "and create_sequences() helper. Contributions welcome!"
         )
 
     # ------------------------------------------------------------------

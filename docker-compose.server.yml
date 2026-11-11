@@ -1,0 +1,154 @@
+# Run-only stack for a small shared server (1 vCPU, ~2 GB free RAM).
+#
+# Nothing is built here: images are built on a workstation and pulled from a
+# registry (by default the workstation's local registry, reached through an SSH
+# reverse tunnel — see scripts/deploy_server.sh and docs/deploy.md, section 9).
+# Differences from docker-compose.prod.yml:
+# - no `training` (models are trained on the workstation, the MLflow volume is
+#   copied over) and no `ingestion` HTTP API (scheduled ingestion runs in
+#   celery-worker/celery-beat; nginx never exposed the ingestion API anyway);
+# - one Celery process and one MLflow worker, and a memory cap per container,
+#   so a spike stays inside this stack instead of pushing other projects on the
+#   server into swap;
+# - no container_name: names come from the project (`-p nckh`), so they cannot
+#   clash with containers of other projects on the same Docker daemon;
+# - nginx is published on 127.0.0.1 only (for checks over SSH); visitors arrive
+#   through the Cloudflare tunnel.
+
+x-app-env: &app-env
+  ENV: production
+  DEBUG: "false"
+  DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+  REDIS_URL: redis://redis:6379/0
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  SENTRY_DSN: ${SENTRY_DSN:-}
+
+services:
+  postgres:
+    image: ${REGISTRY:-localhost:5000}/nckh/postgres:${TAG:-latest}
+    restart: always
+    mem_limit: 384m
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-stock_crypto_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-stock_crypto_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: ${REGISTRY:-localhost:5000}/nckh/redis:${TAG:-latest}
+    restart: always
+    mem_limit: 96m
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mlflow:
+    image: ${REGISTRY:-localhost:5000}/nckh/mlflow:${TAG:-latest}
+    restart: always
+    mem_limit: 384m
+    command: mlflow server --host 0.0.0.0 --port 5000 --workers 1 --backend-store-uri sqlite:////mlflow/mlflow.db --default-artifact-root /mlflow/artifacts
+    volumes:
+      - mlflow_data:/mlflow
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5000/health')\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  celery-worker:
+    image: ${REGISTRY:-localhost:5000}/nckh/ingestion:${TAG:-latest}
+    restart: always
+    mem_limit: 512m
+    command: celery -A celery_app worker --loglevel=info --concurrency=1
+    environment: *app-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery-beat:
+    image: ${REGISTRY:-localhost:5000}/nckh/ingestion:${TAG:-latest}
+    restart: always
+    mem_limit: 256m
+    command: celery -A celery_app beat --loglevel=info --schedule /tmp/celerybeat-schedule
+    environment: *app-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  inference:
+    image: ${REGISTRY:-localhost:5000}/nckh/inference:${TAG:-latest}
+    restart: always
+    mem_limit: 1g
+    volumes:
+      - mlflow_data:/mlflow
+    environment:
+      <<: *app-env
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      API_KEY_SECRET: ${API_KEY_SECRET}
+    # Port 8000 is not published, so trusting X-Forwarded-For from any peer
+    # only trusts nginx (same reasoning as docker-compose.prod.yml).
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mlflow:
+        condition: service_healthy
+
+  frontend:
+    image: ${REGISTRY:-localhost:5000}/nckh/frontend:${TAG:-latest}
+    restart: always
+    mem_limit: 256m
+    environment:
+      NODE_ENV: production
+    depends_on:
+      - inference
+
+  nginx:
+    image: ${REGISTRY:-localhost:5000}/nckh/nginx:${TAG:-latest}
+    restart: always
+    mem_limit: 64m
+    ports:
+      - "127.0.0.1:${NGINX_HTTP_PORT:-18088}:80"
+    environment:
+      API_KEY_SECRET: ${API_KEY_SECRET}
+    volumes:
+      - ./infra/nginx/templates:/etc/nginx/templates:ro
+    depends_on:
+      - frontend
+      - inference
+
+  # Named tunnel (fixed hostname). Start it only after the workstation's
+  # cloudflared is stopped: two connectors with the same token share traffic.
+  cloudflared:
+    image: ${REGISTRY:-localhost:5000}/nckh/cloudflared:${TAG:-latest}
+    profiles: ["tunnel"]
+    restart: unless-stopped
+    mem_limit: 64m
+    command: ["tunnel", "--no-autoupdate", "run"]
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN}
+    depends_on:
+      - nginx
+
+volumes:
+  postgres_data:
+  redis_data:
+  mlflow_data:

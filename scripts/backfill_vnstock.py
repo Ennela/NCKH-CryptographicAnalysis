@@ -1,4 +1,7 @@
 """
+VN stocks backfill from Vietcap (vnstock is quarantined on PyPI, see
+services/ingestion/adapters/vietcap_adapter.py).
+
 Retry VN Stocks backfill — Chạy lại phần cổ phiếu VN với encoding fix.
 
 Lần chạy trước vnstock bị crash do Unicode encoding (cp1252) trên Windows.
@@ -32,7 +35,7 @@ from shared.db.repositories.market_repo import (  # noqa: E402
     update_job,
     record_dq_check,
 )
-from services.ingestion.adapters.vnstock_adapter import VNStockAdapter  # noqa: E402
+from services.ingestion.adapters.vietcap_adapter import VietcapAdapter  # noqa: E402
 
 # Setup logging with UTF-8 handler
 logger = logging.getLogger(__name__)
@@ -46,7 +49,9 @@ logging.basicConfig(
     ],
 )
 
-DAYS = 730  # 2 năm
+# Covers the locked snapshot (from 2024-05-24): Vietcap prices are adjusted as
+# of today, so the whole stored history must be refetched to stay consistent.
+DAYS = 900
 
 STOCK_SYMBOLS: list[str] = [
     "FPT",  # Công nghệ
@@ -67,7 +72,7 @@ STOCK_SYMBOLS: list[str] = [
 ]
 
 
-def backfill_stock(db, adapter: VNStockAdapter, symbol: str, days: int) -> dict:
+def backfill_stock(db, adapter: VietcapAdapter, symbol: str, days: int) -> dict:
     """Backfill 1 VN stock symbol. Returns summary dict."""
     resolution = "1d"
     exchange_id = ensure_exchange(
@@ -145,7 +150,7 @@ def main() -> None:
     db = SessionLocal()
 
     try:
-        adapter = VNStockAdapter()
+        adapter = VietcapAdapter()
 
         for i, symbol in enumerate(STOCK_SYMBOLS, 1):
             logger.info(
@@ -166,7 +171,7 @@ def main() -> None:
                 db.rollback()
                 results.append({"symbol": symbol, "rows": 0, "status": f"error: {e}"})
 
-            # Rate limit between vnstock API calls
+            # Rate limit between Vietcap API calls
             time.sleep(2)
     finally:
         db.close()

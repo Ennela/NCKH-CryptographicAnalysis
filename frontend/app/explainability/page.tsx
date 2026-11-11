@@ -1,163 +1,305 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import ReactECharts from "echarts-for-react";
-import { Cpu, AlertCircle, HelpCircle } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { ApiError, describeApiError, fetchExplain, type ExplainResponse, type ModelName, type Timeframe } from "@/lib/api";
+import { formatDate, formatNum, timeframeLabel } from "@/lib/format";
+import { useSymbols } from "@/lib/use-symbols";
+import EChart, { CHART_THEME } from "@/components/echart";
+import { Badge, Field, FilterBar, MetricRow, PageHeader, Panel, StateBox } from "@/components/ui";
+
+const MODEL_OPTIONS: { value: ModelName; label: string }[] = [
+  { value: "xgboost", label: "XGBoost" },
+  { value: "random_forest", label: "Random Forest" },
+  { value: "gru", label: "GRU" },
+  { value: "arima", label: "ARIMA" },
+];
+
+const MODEL_LABEL: Record<ModelName, string> = {
+  xgboost: "XGBoost",
+  random_forest: "Random Forest",
+  gru: "GRU",
+  arima: "ARIMA",
+};
+
+/** Which explanation each model's training entrypoint logs (see docs/api.md §7). */
+const METHOD_OF: Record<ModelName, string> = {
+  xgboost: "shap_tree_explainer",
+  random_forest: "shap_tree_explainer",
+  gru: "permutation_importance",
+  arima: "arima_coefficients",
+};
+
+const METHOD_LABEL: Record<string, string> = {
+  shap_tree_explainer: "SHAP TreeExplainer",
+  permutation_importance: "Permutation importance",
+  arima_coefficients: "Hệ số ARIMA",
+};
+
+const PARAM_MEANING: Record<string, string> = {
+  "ar.L1": "Biến động giá phiên này phụ thuộc bao nhiêu vào biến động phiên trước.",
+  "ma.L1": "Mô hình điều chỉnh theo sai số dự báo của phiên trước bao nhiêu.",
+  sigma2: "Phương sai của phần nhiễu mà mô hình không giải thích được.",
+};
+
+type Bar = { name: string; value: number; spread: number | null };
+
+/** Bars for the tree/GRU methods: mean |SHAP| for trees, mean RMSE increase for GRU. */
+function toBars(data: ExplainResponse): Bar[] {
+  return data.features
+    .map((f) => ({
+      name: f.feature,
+      value: data.method === "shap_tree_explainer" ? f.mean_abs_shap ?? f.importance : f.importance,
+      spread: f.importance_std ?? null,
+    }))
+    .sort((a, b) => a.value - b.value);
+}
 
 export default function ExplainabilityPage() {
-  const [domLoaded, setDomLoaded] = useState(false);
+  const { symbols, ticker, setTicker, selected } = useSymbols();
+  const [timeframe, setTimeframe] = useState<Timeframe>("1d");
+  const [modelName, setModelName] = useState<ModelName>("xgboost");
+  const [data, setData] = useState<ExplainResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [notFound, setNotFound] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setDomLoaded(true);
-  }, []);
+    if (selected?.asset_class !== "crypto") setTimeframe("1d");
+  }, [selected?.asset_class]);
 
-  // Mock SHAP values data
-  // Positive SHAP values indicate pushing price UP (green)
-  // Negative SHAP values indicate pulling price DOWN (rose)
-  const shapFeatures = ["RSI (14)", "MACD Line", "MACD Signal", "Historical Volatility", "Log Returns (1d)", "Lagged Close (t-1)"];
-  const shapValues = [0.45, -0.22, 0.08, -0.35, 0.65, 1.20]; // Mock SHAP force values
+  const load = useCallback(async () => {
+    if (!ticker) return;
+    setLoading(true);
+    setNotFound(false);
+    setError(null);
+    setData(null);
+    try {
+      setData(await fetchExplain(ticker, timeframe, modelName));
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) setNotFound(true);
+      else setError(describeApiError(err));
+    } finally {
+      setLoading(false);
+    }
+  }, [ticker, timeframe, modelName]);
 
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const method = data?.method ?? METHOD_OF[modelName];
+  const isArima = method === "arima_coefficients";
+  const unit = selected?.asset_class === "crypto" ? "USD" : "nghìn VND";
+  const stateHeight = isArima ? "h-64" : "h-full";
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        title="Giải thích mô hình"
+        description="Mô hình dựa vào đâu để dự báo: SHAP cho XGBoost và Random Forest, permutation importance cho GRU, bảng hệ số cho ARIMA. Mọi giá trị được tính lúc huấn luyện và đọc từ MLflow."
+      />
+
+      <FilterBar>
+        <Field label="Tài sản">
+          <select className="field-select" value={ticker} onChange={(e) => setTicker(e.target.value)} disabled={symbols.length === 0}>
+            {symbols.map((s) => (
+              <option key={s.ticker} value={s.ticker}>{s.ticker} ({s.asset_class === "crypto" ? "Crypto" : "Cổ phiếu VN"})</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Khung thời gian">
+          <select className="field-select" value={timeframe} onChange={(e) => setTimeframe(e.target.value as Timeframe)}>
+            <option value="1d">1 ngày</option>
+            <option value="1h" disabled={selected?.asset_class !== "crypto"}>1 giờ (chỉ crypto)</option>
+          </select>
+        </Field>
+        <Field label="Mô hình">
+          <select className="field-select" value={modelName} onChange={(e) => setModelName(e.target.value as ModelName)}>
+            {MODEL_OPTIONS.map((m) => (
+              <option key={m.value} value={m.value}>{m.label}</option>
+            ))}
+          </select>
+        </Field>
+      </FilterBar>
+
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_400px]">
+        <Panel
+          title={`${isArima ? "Tham số ước lượng" : "Mức độ ảnh hưởng của đặc trưng"} — ${MODEL_LABEL[modelName]} · ${ticker || "…"} (${timeframeLabel(timeframe)})`}
+          actions={<Badge tone="blue">{METHOD_LABEL[method] ?? method}</Badge>}
+          className={isArima ? "self-start" : ""}
+          bodyClassName={isArima ? "p-0" : "h-[520px] p-3"}
+        >
+          {loading ? (
+            <StateBox kind="loading" message="Đang tải kết quả giải thích…" height={stateHeight} />
+          ) : notFound ? (
+            <StateBox
+              kind="empty"
+              message="Chưa có kết quả giải thích cho mô hình này"
+              hint={`Huấn luyện bằng: python train_${modelName}.py --ticker ${ticker} --timeframe ${timeframe}`}
+              height={stateHeight}
+            />
+          ) : error ? (
+            <StateBox kind="error" message="Không tải được kết quả giải thích" hint={error} onRetry={load} height={stateHeight} />
+          ) : !data || data.features.length === 0 ? (
+            <StateBox kind="empty" message="Artifact không chứa đặc trưng nào" height={stateHeight} />
+          ) : isArima ? (
+            <CoefficientTable data={data} />
+          ) : (
+            <FeatureChart bars={toBars(data)} method={method} unit={unit} />
+          )}
+        </Panel>
+
+        <div className="flex flex-col gap-6">
+          <SummaryPanel data={data} unit={unit} />
+          <GuidePanel method={method} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FeatureChart({ bars, method, unit }: { bars: Bar[]; method: string; unit: string }) {
+  const axisName = method === "permutation_importance" ? `RMSE tăng thêm (${unit})` : "mean |SHAP|";
   const option = {
     backgroundColor: "transparent",
     tooltip: {
       trigger: "axis",
-      axisPointer: {
-        type: "shadow"
+      axisPointer: { type: "shadow" },
+      ...CHART_THEME.tooltip,
+      formatter: (params: { dataIndex: number }[]) => {
+        const bar = bars[params[0].dataIndex];
+        const spread = bar.spread !== null ? ` (± ${bar.spread.toPrecision(3)})` : "";
+        return `${bar.name}<br/>${axisName}: ${bar.value.toPrecision(4)}${spread}`;
       },
-      backgroundColor: "#151b2c",
-      borderColor: "#1e293b",
-      textStyle: {
-        color: "#cbd5e1"
-      },
-      formatter: function (params: any) {
-        const item = params[0];
-        const val = item.value;
-        const color = val >= 0 ? "#10b981" : "#f43f5e";
-        return `<div className="text-xs">
-                  <span className="font-semibold block">${item.name}</span>
-                  <span style="color: ${color}">Tác động (SHAP): ${val >= 0 ? "+" : ""}${val}</span>
-                </div>`;
-      }
     },
-    grid: {
-      left: "3%",
-      right: "10%",
-      bottom: "10%",
-      top: "5%",
-      containLabel: true
-    },
+    grid: { left: 8, right: 60, top: 10, bottom: 30, containLabel: true },
     xAxis: {
       type: "value",
-      axisLine: { lineStyle: { color: "#334155" } },
-      axisLabel: { color: "#94a3b8" },
-      splitLine: { lineStyle: { color: "#1e293b", type: "dashed" } }
+      name: axisName,
+      nameLocation: "middle",
+      nameGap: 26,
+      nameTextStyle: { color: "#94A3B8", fontSize: 11 },
+      axisLine: CHART_THEME.axisLine,
+      axisLabel: CHART_THEME.axisLabel,
+      splitLine: CHART_THEME.splitLine,
     },
-    yAxis: {
-      type: "category",
-      data: shapFeatures,
-      axisLine: { lineStyle: { color: "#334155" } },
-      axisLabel: { color: "#94a3b8" },
-      splitLine: { show: false }
-    },
+    yAxis: { type: "category", data: bars.map((b) => b.name), axisLine: CHART_THEME.axisLine, axisLabel: CHART_THEME.axisLabel },
     series: [
       {
-        name: "Tác động đặc trưng (SHAP value)",
+        name: axisName,
         type: "bar",
-        data: shapValues,
-        itemStyle: {
-          color: function (params: any) {
-            // green if positive impact, rose if negative impact
-            return params.value >= 0 ? "#10b981" : "#f43f5e";
-          },
-          borderRadius: [0, 4, 4, 0]
-        },
-        label: {
-          show: true,
-          position: "right",
-          formatter: function (params: any) {
-            const val = params.value;
-            return val >= 0 ? `+${val}` : `${val}`;
-          },
-          textStyle: {
-            color: "#cbd5e1",
-            fontWeight: "bold",
-            fontSize: 11
-          }
-        }
-      }
-    ]
+        // A negative RMSE increase means shuffling the feature did not hurt: shown in grey.
+        data: bars.map((b) => ({ value: b.value, itemStyle: { color: b.value < 0 ? "#64748B" : "#3B82F6", borderRadius: [0, 4, 4, 0] } })),
+        label: { show: true, position: "right", color: "#CBD5E1", fontSize: 11, formatter: (p: { value: number }) => Number(p.value).toPrecision(3) },
+      },
+    ],
   };
+  return <EChart option={option} notMerge style={{ height: "100%", width: "100%" }} />;
+}
 
+function formatPValue(p: number | null | undefined): string {
+  if (p === null || p === undefined) return "—";
+  return p < 0.0001 ? "< 0,0001" : formatNum(p, 4);
+}
+
+function CoefficientTable({ data }: { data: ExplainResponse }) {
   return (
-    <div className="space-y-8">
-      <div>
-        <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-200">SHAP Model Explainability</h1>
-        <p className="text-slate-500 text-sm mt-1">
-          Giải thích cơ chế ra quyết định của mô hình Machine Learning XGBoost sử dụng các đặc trưng tài chính kỹ thuật.
-        </p>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* SHAP Chart */}
-        <div className="lg:col-span-2 space-y-6">
-          <div className="glass-card p-6 rounded-xl border border-darkBorder">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-lg font-bold tracking-tight text-slate-200">Biểu Đồ Lực Lượng SHAP (XGBoost Regressor)</h3>
-              <span className="text-xs px-2 py-0.5 rounded bg-emerald-500/10 text-glowEmerald border border-emerald-500/20 font-semibold uppercase">SHAP Waterfall</span>
-            </div>
-            
-            {domLoaded ? (
-              <ReactECharts option={option} style={{ height: "400px", width: "100%" }} />
-            ) : (
-              <div className="h-[400px] w-full flex items-center justify-center bg-slate-900/50 rounded-xl">Loading SHAP visualizer...</div>
-            )}
-          </div>
-        </div>
-
-        {/* Explain Summary Panel */}
-        <div className="lg:col-span-1 space-y-6">
-          <div className="glass-panel p-6 rounded-xl border border-darkBorder space-y-4">
-            <div className="flex items-center gap-2 text-glowIndigo font-semibold">
-              <Cpu className="w-5 h-5" />
-              <span>Phân Tích Quyết Định</span>
-            </div>
-
-            <p className="text-slate-400 text-sm leading-relaxed">
-              Mô hình XGBoost sử dụng các chỉ số kỹ thuật của 14 phiên trước để dự báo giá đóng cửa của phiên tiếp theo.
-              SHAP values đo lường mức độ lệch của dự báo so với giá trị trung bình cơ sở khi thêm mỗi đặc trưng.
-            </p>
-
-            <div className="space-y-3 pt-4 border-t border-darkBorder">
-              <div className="flex items-start gap-2.5 text-xs">
-                <div className="w-2 h-2 rounded-full bg-glowEmerald mt-1.5 shrink-0" />
-                <div>
-                  <span className="font-semibold text-slate-300">Yếu tố đẩy giá tăng (Positive Impact)</span>
-                  <p className="text-slate-500 mt-0.5">Tỷ suất lợi nhuận Log Returns cao (`+0.65`) chứng tỏ đà tăng đang mạnh mẽ.</p>
-                </div>
-              </div>
-              
-              <div className="flex items-start gap-2.5 text-xs">
-                <div className="w-2 h-2 rounded-full bg-glowRose mt-1.5 shrink-0" />
-                <div>
-                  <span className="font-semibold text-slate-300">Yếu tố kéo giá giảm (Negative Impact)</span>
-                  <p className="text-slate-500 mt-0.5">Độ biến động lịch sử cao (`-0.35`) làm tăng mức độ rủi ro, kéo giá dự báo đi xuống.</p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="p-4 rounded-xl bg-slate-900 border border-darkBorder flex gap-2.5 items-start">
-            <AlertCircle className="w-5 h-5 text-amber-500 shrink-0" />
-            <div className="text-xs space-y-1">
-              <span className="font-semibold text-slate-300 block">Lưu Ý Đối Với Mô Hình Deep Learning</span>
-              <p className="text-slate-500 leading-relaxed">
-                Mô hình LSTM và GRU sử dụng mạng nơ-ron không có tính giải thích trực tiếp như XGBoost. 
-                Do đó, SHAP values chỉ khả dụng cho mô hình dạng cây quyết định (Tree models).
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
+    <div className="overflow-x-auto">
+      <table className="data-table">
+        <thead>
+          <tr>
+            <th>Tham số</th>
+            <th className="text-right">Hệ số</th>
+            <th className="text-right">Sai số chuẩn</th>
+            <th className="text-right">p-value</th>
+            <th>Ý nghĩa</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.features.map((f) => {
+            const hasP = f.p_value !== null && f.p_value !== undefined;
+            const significant = hasP && (f.p_value as number) < 0.05;
+            return (
+              <tr key={f.feature}>
+                <td className="font-mono font-semibold text-white">{f.feature}</td>
+                <td className="text-right font-mono">{formatNum(f.coefficient ?? f.importance, 4)}</td>
+                <td className="text-right font-mono">{formatNum(f.std_error, 4)}</td>
+                <td className="whitespace-nowrap text-right">
+                  <span className="font-mono">{formatPValue(f.p_value)}</span>{" "}
+                  {f.feature !== "sigma2" && hasP && <Badge tone={significant ? "green" : "slate"}>{significant ? "có ý nghĩa" : "không rõ"}</Badge>}
+                </td>
+                <td className="text-slate-400">{PARAM_MEANING[f.feature] ?? "Tham số của mô hình ARIMA."}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
+  );
+}
+
+/** ARIMA(1,1,1): when ar.L1 ≈ −ma.L1 the two terms nearly cancel and the model behaves like a random walk. */
+function arimaCancellationNote(data: ExplainResponse): string | null {
+  const coef = (name: string) => data.features.find((f) => f.feature === name)?.coefficient;
+  const ar = coef("ar.L1");
+  const ma = coef("ma.L1");
+  if (ar === null || ar === undefined || ma === null || ma === undefined) return null;
+  return `ar.L1 + ma.L1 = ${formatNum(ar + ma, 3)}. Tổng càng gần 0 thì hai thành phần càng triệt tiêu nhau và ARIMA(1,1,1) càng gần bước ngẫu nhiên (dự báo ≈ giá đóng cửa gần nhất), một lý do khiến ARIMA bám sát baseline Naive.`;
+}
+
+function SummaryPanel({ data, unit }: { data: ExplainResponse | null; unit: string }) {
+  if (data?.method === "arima_coefficients") {
+    const note = arimaCancellationNote(data);
+    return (
+      <Panel title="Tóm tắt mô hình" bodyClassName="flex flex-col gap-2.5 p-4">
+        <MetricRow label="Bậc (p, d, q)" value={data.order ? `(${data.order.join(", ")})` : "—"} />
+        <MetricRow label="Số quan sát lịch sử" value={data.n_observations?.toLocaleString("vi-VN") ?? "—"} />
+        {note && <p className="text-xs leading-relaxed text-slate-300">{note}</p>}
+        <p className="text-[11px] text-slate-500">Artifact tạo lúc {formatDate(data.generated_at, true)}</p>
+      </Panel>
+    );
+  }
+  const top = data ? [...toBars(data)].reverse().slice(0, 5) : [];
+  return (
+    <Panel title="Đặc trưng ảnh hưởng lớn nhất" bodyClassName="flex flex-col gap-2.5 p-4">
+      {top.length === 0 ? (
+        <p className="text-sm text-slate-400">Chưa có dữ liệu.</p>
+      ) : (
+        top.map((f, i) => <MetricRow key={f.name} label={`${i + 1}. ${f.name}`} value={f.value.toPrecision(4)} />)
+      )}
+      {data?.method === "permutation_importance" && data.baseline_rmse != null && (
+        <MetricRow
+          label="RMSE gốc trên tập test"
+          value={`${formatNum(data.baseline_rmse, 4)} ${unit}`}
+          note={`${data.n_repeats ?? "?"} lần xáo trộn mỗi đặc trưng`}
+        />
+      )}
+      {data && <p className="text-[11px] text-slate-500">Artifact tạo lúc {formatDate(data.generated_at, true)}</p>}
+    </Panel>
+  );
+}
+
+function GuidePanel({ method }: { method: string }) {
+  return (
+    <Panel title="Cách đọc kết quả" bodyClassName="space-y-2 p-4 text-sm leading-relaxed text-slate-300">
+      {method === "permutation_importance" ? (
+        <>
+          <p>Mỗi đặc trưng được xáo trộn giữa các chuỗi 7 bước của tập kiểm thử (giữ nguyên phân phối, phá vỡ liên hệ với giá cần dự báo), lặp lại vài lần với seed cố định. Cột là mức RMSE tăng thêm so với RMSE gốc: càng lớn, GRU càng phụ thuộc vào đặc trưng đó.</p>
+          <p>Giá trị gần 0 hoặc âm (màu xám) nghĩa là xáo trộn đặc trưng gần như không làm dự báo kém đi, tức mô hình hầu như không dùng nó.</p>
+          <p className="text-xs text-slate-500">GRU dự báo phần hiệu chỉnh cộng vào giá đóng cửa gần nhất (residual), nên đặc trưng close thường chi phối.</p>
+        </>
+      ) : method === "arima_coefficients" ? (
+        <>
+          <p>ARIMA chỉ dùng chuỗi giá đóng cửa nên không có đặc trưng để xếp hạng. Phần giải thích là các tham số ước lượng trên tập huấn luyện; d = 1 nghĩa là mô hình dự báo phần thay đổi giá (sai phân) thay vì mức giá.</p>
+          <p>p-value &lt; 0,05: hệ số khác 0 có ý nghĩa thống kê ở mức 5%. Sai số chuẩn lớn so với hệ số nghĩa là ước lượng kém chắc chắn.</p>
+        </>
+      ) : (
+        <>
+          <p>SHAP phân rã mỗi dự báo thành tổng đóng góp của từng đặc trưng. Giá trị mean |SHAP| là độ lớn đóng góp trung bình trên tập kiểm thử: càng lớn, đặc trưng càng chi phối dự báo.</p>
+          <p>Với dữ liệu giá, các đặc trưng trễ (close_lag_*) và trung bình trượt thường đứng đầu: mô hình chủ yếu bám mức giá gần nhất, phù hợp với việc baseline Naive rất khó bị vượt qua.</p>
+          <p className="text-xs text-slate-500">XGBoost và Random Forest dùng chung phương pháp nên so sánh trực tiếp được với nhau.</p>
+        </>
+      )}
+    </Panel>
   );
 }

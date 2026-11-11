@@ -36,6 +36,8 @@ class GRUForecaster(nn.Module):
             dropout=dropout if num_layers > 1 else 0.0,
         )
         self.output_layer = nn.Linear(hidden_size, 1)
+        nn.init.zeros_(self.output_layer.weight)
+        nn.init.zeros_(self.output_layer.bias)
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
         """Return one prediction per sequence as a one-dimensional tensor."""
@@ -44,7 +46,10 @@ class GRUForecaster(nn.Module):
                 "GRU inputs must have shape (batch, sequence, input_size)."
             )
         recurrent_output, _ = self.gru(inputs)
-        return self.output_layer(recurrent_output[:, -1, :]).squeeze(-1)
+        residual = self.output_layer(recurrent_output[:, -1, :]).squeeze(-1)
+        # Residual connection: close price is at index 0
+        last_close = inputs[:, -1, 0]
+        return last_close + residual
 
     def get_config(self) -> dict[str, Any]:
         """Return the architecture metadata required to reconstruct the model."""

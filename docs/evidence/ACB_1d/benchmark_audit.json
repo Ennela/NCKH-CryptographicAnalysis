@@ -1,0 +1,2704 @@
+{
+  "actual": {
+    "excluded_models": [],
+    "valid_models": [
+      "xgboost",
+      "random_forest",
+      "gru",
+      "arima"
+    ]
+  },
+  "benchmark_contract": {
+    "dataset_version": "group_dataset_v1",
+    "horizon": 1,
+    "prediction_rows": 78,
+    "seed": 42,
+    "snapshot_name": "ohlcv_full_current",
+    "split": "test",
+    "symbol": "ACB",
+    "target": "next_close",
+    "test_manifest_sha256": "62d82e13b48f337623235e20c2412d435395fef46fea5a24776ea895d1c8b828",
+    "timeframe": "1d"
+  },
+  "checks": {
+    "cross_model_row_identity": true,
+    "four_models_valid": true,
+    "naive_identity": true
+  },
+  "environment": {
+    "mlflow": "2.11.3",
+    "numpy": "1.26.4",
+    "pandas": "2.3.3",
+    "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.41",
+    "python": "3.11.15"
+  },
+  "evaluator_source_commit": "e449f0df93feca9c03726233d0ffe70de6d84202",
+  "expected": {
+    "models": [
+      "xgboost",
+      "random_forest",
+      "gru",
+      "arima"
+    ],
+    "prediction_rows": 78,
+    "status": "valid"
+  },
+  "failure_reason": {},
+  "generated_at": "2026-07-23T14:30:15Z",
+  "models": {
+    "arima": {
+      "artifacts": [
+        "metadata/pre_test_model.json",
+        "metrics/ACB_1d_f1ef301caa064c858da753982f1564dc.csv",
+        "model/MLmodel",
+        "model/conda.yaml",
+        "model/metadata/MLmodel",
+        "model/metadata/conda.yaml",
+        "model/metadata/python_env.yaml",
+        "model/metadata/requirements.txt",
+        "model/model.statsmodels",
+        "model/python_env.yaml",
+        "model/registered_model_meta",
+        "model/requirements.txt",
+        "predictions/ACB_1d_f1ef301caa064c858da753982f1564dc.csv"
+      ],
+      "checks": [
+        {
+          "actual": "f1ef301caa064c858da753982f1564dc",
+          "expected": "existing MLflow run",
+          "failure_reason": null,
+          "name": "run_exists",
+          "status": "pass"
+        },
+        {
+          "actual": "FINISHED",
+          "expected": "FINISHED",
+          "failure_reason": null,
+          "name": "run_status",
+          "status": "pass"
+        },
+        {
+          "actual": {},
+          "expected": "not explicitly exploratory, superseded, excluded, or invalid",
+          "failure_reason": null,
+          "name": "run_lifecycle",
+          "status": "pass"
+        },
+        {
+          "actual": {
+            "commit": "ab1cf9af355211192c923c55aa042ff0413fdf6a",
+            "in_evaluator_history": true,
+            "in_origin_develop": true
+          },
+          "expected": "ancestor of origin/develop or committed evaluator branch HEAD",
+          "failure_reason": null,
+          "name": "source_commit",
+          "status": "pass"
+        },
+        {
+          "actual": "ab1cf9af355211192c923c55aa042ff0413fdf6a",
+          "expected": "ab1cf9af355211192c923c55aa042ff0413fdf6a",
+          "failure_reason": null,
+          "name": "minimum_implementation_commit",
+          "status": "pass"
+        },
+        {
+          "actual": {
+            "missing": []
+          },
+          "expected": [
+            "dataset_version",
+            "snapshot_name",
+            "test_manifest_sha256",
+            "symbol",
+            "timeframe",
+            "model",
+            "target",
+            "horizon",
+            "seed",
+            "order_p",
+            "order_d",
+            "order_q",
+            "state_role",
+            "observation_count",
+            "contains_test_history"
+          ],
+          "failure_reason": null,
+          "name": "required_params",
+          "status": "pass"
+        },
+        {
+          "actual": {
+            "missing": []
+          },
+          "expected": [
+            "mae",
+            "rmse",
+            "mape_pct",
+            "directional_accuracy",
+            "naive_mae",
+            "naive_rmse",
+            "naive_mape_pct",
+            "naive_directional_accuracy",
+            "improvement_vs_naive_rmse_pct"
+          ],
+          "failure_reason": null,
+          "name": "required_metrics",
+          "status": "pass"
+        },
+        {
+          "actual": {
+            "dataset_version": "group_dataset_v1",
+            "horizon": "1",
+            "model": "arima",
+            "seed": "42",
+            "snapshot_name": "ohlcv_full_current",
+            "symbol": "ACB",
+            "target": "next_close",
+            "test_manifest_sha256": "62d82e13b48f337623235e20c2412d435395fef46fea5a24776ea895d1c8b828",
+            "timeframe": "1d"
+          },
+          "expected": {
+            "dataset_version": "group_dataset_v1",
+            "horizon": "1",
+            "model": "arima",
+            "seed": "42",
+            "snapshot_name": "ohlcv_full_current",
+            "symbol": "ACB",
+            "target": "next_close",
+            "test_manifest_sha256": "62d82e13b48f337623235e20c2412d435395fef46fea5a24776ea895d1c8b828",
+            "timeframe": "1d"
+          },
+          "failure_reason": null,
+          "name": "contract_params",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            1,
+            1,
+            1
+          ],
+          "expected": [
+            1,
+            1,
+            1
+          ],
+          "failure_reason": null,
+          "name": "arima_order",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "metadata/pre_test_model.json",
+            "metrics/ACB_1d_f1ef301caa064c858da753982f1564dc.csv",
+            "model/MLmodel",
+            "model/conda.yaml",
+            "model/metadata/MLmodel",
+            "model/metadata/conda.yaml",
+            "model/metadata/python_env.yaml",
+            "model/metadata/requirements.txt",
+            "model/model.statsmodels",
+            "model/python_env.yaml",
+            "model/registered_model_meta",
+            "model/requirements.txt",
+            "predictions/ACB_1d_f1ef301caa064c858da753982f1564dc.csv"
+          ],
+          "expected": "nonempty accessible artifact tree",
+          "failure_reason": null,
+          "name": "artifact_uri",
+          "status": "pass"
+        },
+        {
+          "actual": {
+            "missing": []
+          },
+          "expected": [
+            "model/MLmodel",
+            "metadata/pre_test_model.json"
+          ],
+          "failure_reason": null,
+          "name": "required_artifacts",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "predictions/ACB_1d_f1ef301caa064c858da753982f1564dc.csv",
+            "metrics/ACB_1d_f1ef301caa064c858da753982f1564dc.csv"
+          ],
+          "expected": "one prediction CSV and one summary CSV",
+          "failure_reason": null,
+          "name": "csv_artifacts",
+          "status": "pass"
+        },
+        {
+          "actual": "readable CSVs",
+          "expected": "readable CSVs",
+          "failure_reason": null,
+          "name": "csv_download",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "dataset_version",
+            "snapshot_name",
+            "test_manifest_sha256",
+            "symbol",
+            "timeframe",
+            "model",
+            "split",
+            "input_ts",
+            "target_ts",
+            "current_close",
+            "actual_close",
+            "predicted_close",
+            "run_id",
+            "seed"
+          ],
+          "expected": [
+            "dataset_version",
+            "snapshot_name",
+            "test_manifest_sha256",
+            "symbol",
+            "timeframe",
+            "model",
+            "split",
+            "input_ts",
+            "target_ts",
+            "current_close",
+            "actual_close",
+            "predicted_close",
+            "run_id",
+            "seed"
+          ],
+          "failure_reason": null,
+          "name": "prediction_schema",
+          "status": "pass"
+        },
+        {
+          "actual": 78,
+          "expected": 78,
+          "failure_reason": null,
+          "name": "prediction_rows",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "group_dataset_v1"
+          ],
+          "expected": "group_dataset_v1",
+          "failure_reason": null,
+          "name": "prediction_dataset_version",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "ohlcv_full_current"
+          ],
+          "expected": "ohlcv_full_current",
+          "failure_reason": null,
+          "name": "prediction_snapshot_name",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "62d82e13b48f337623235e20c2412d435395fef46fea5a24776ea895d1c8b828"
+          ],
+          "expected": "62d82e13b48f337623235e20c2412d435395fef46fea5a24776ea895d1c8b828",
+          "failure_reason": null,
+          "name": "prediction_test_manifest_sha256",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "ACB"
+          ],
+          "expected": "ACB",
+          "failure_reason": null,
+          "name": "prediction_symbol",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "1d"
+          ],
+          "expected": "1d",
+          "failure_reason": null,
+          "name": "prediction_timeframe",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "arima"
+          ],
+          "expected": "arima",
+          "failure_reason": null,
+          "name": "prediction_model",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "test"
+          ],
+          "expected": "test",
+          "failure_reason": null,
+          "name": "prediction_split",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "f1ef301caa064c858da753982f1564dc"
+          ],
+          "expected": "f1ef301caa064c858da753982f1564dc",
+          "failure_reason": null,
+          "name": "prediction_run_id",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            42
+          ],
+          "expected": 42,
+          "failure_reason": null,
+          "name": "prediction_seed",
+          "status": "pass"
+        },
+        {
+          "actual": "valid",
+          "expected": "strictly ordered unique horizon-one targets",
+          "failure_reason": null,
+          "name": "prediction_chronology",
+          "status": "pass"
+        },
+        {
+          "actual": "all finite",
+          "expected": "all finite",
+          "failure_reason": null,
+          "name": "prediction_finite",
+          "status": "pass"
+        },
+        {
+          "actual": "match",
+          "expected": "exact locked-loader row identity",
+          "failure_reason": null,
+          "name": "locked_manifest_rows",
+          "status": "pass"
+        },
+        {
+          "actual": {
+            "directional_accuracy": 0.5128205128205128,
+            "improvement_vs_naive_rmse_pct": 0.5163771224311596,
+            "mae": 0.27234869637307557,
+            "mape_pct": 1.3135850175231933,
+            "naive_directional_accuracy": 0.10256410256410256,
+            "naive_mae": 0.2669230769230771,
+            "naive_mape_pct": 1.2888783803605892,
+            "naive_rmse": 0.3902169022085419,
+            "rmse": 0.3882019113976774
+          },
+          "expected": "finite metrics with RMSE >= MAE",
+          "failure_reason": null,
+          "name": "metric_recomputation",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "dataset_version",
+            "snapshot_name",
+            "test_manifest_sha256",
+            "symbol",
+            "timeframe",
+            "model",
+            "split",
+            "n_samples",
+            "mae",
+            "rmse",
+            "mape_pct",
+            "directional_accuracy",
+            "naive_mae",
+            "naive_rmse",
+            "naive_mape_pct",
+            "naive_directional_accuracy",
+            "improvement_vs_naive_rmse_pct",
+            "run_id",
+            "seed",
+            "status"
+          ],
+          "expected": [
+            "dataset_version",
+            "snapshot_name",
+            "test_manifest_sha256",
+            "symbol",
+            "timeframe",
+            "model",
+            "split",
+            "n_samples",
+            "mae",
+            "rmse",
+            "mape_pct",
+            "directional_accuracy",
+            "naive_mae",
+            "naive_rmse",
+            "naive_mape_pct",
+            "naive_directional_accuracy",
+            "improvement_vs_naive_rmse_pct",
+            "run_id",
+            "seed",
+            "status"
+          ],
+          "failure_reason": null,
+          "name": "summary_schema",
+          "status": "pass"
+        },
+        {
+          "actual": "group_dataset_v1",
+          "expected": "group_dataset_v1",
+          "failure_reason": null,
+          "name": "summary_dataset_version",
+          "status": "pass"
+        },
+        {
+          "actual": "ohlcv_full_current",
+          "expected": "ohlcv_full_current",
+          "failure_reason": null,
+          "name": "summary_snapshot_name",
+          "status": "pass"
+        },
+        {
+          "actual": "62d82e13b48f337623235e20c2412d435395fef46fea5a24776ea895d1c8b828",
+          "expected": "62d82e13b48f337623235e20c2412d435395fef46fea5a24776ea895d1c8b828",
+          "failure_reason": null,
+          "name": "summary_test_manifest_sha256",
+          "status": "pass"
+        },
+        {
+          "actual": "ACB",
+          "expected": "ACB",
+          "failure_reason": null,
+          "name": "summary_symbol",
+          "status": "pass"
+        },
+        {
+          "actual": "1d",
+          "expected": "1d",
+          "failure_reason": null,
+          "name": "summary_timeframe",
+          "status": "pass"
+        },
+        {
+          "actual": "arima",
+          "expected": "arima",
+          "failure_reason": null,
+          "name": "summary_model",
+          "status": "pass"
+        },
+        {
+          "actual": "test",
+          "expected": "test",
+          "failure_reason": null,
+          "name": "summary_split",
+          "status": "pass"
+        },
+        {
+          "actual": 78,
+          "expected": 78,
+          "failure_reason": null,
+          "name": "summary_n_samples",
+          "status": "pass"
+        },
+        {
+          "actual": "f1ef301caa064c858da753982f1564dc",
+          "expected": "f1ef301caa064c858da753982f1564dc",
+          "failure_reason": null,
+          "name": "summary_run_id",
+          "status": "pass"
+        },
+        {
+          "actual": 42,
+          "expected": 42,
+          "failure_reason": null,
+          "name": "summary_seed",
+          "status": "pass"
+        },
+        {
+          "actual": "preliminary",
+          "expected": [
+            "invalid",
+            "preliminary",
+            "valid"
+          ],
+          "failure_reason": null,
+          "name": "summary_status",
+          "status": "pass"
+        },
+        {
+          "actual": "preliminary",
+          "expected": [
+            "preliminary",
+            "valid"
+          ],
+          "failure_reason": null,
+          "name": "summary_eligibility",
+          "status": "pass"
+        },
+        {
+          "actual": {
+            "directional_accuracy": 0.5128205128205128,
+            "improvement_vs_naive_rmse_pct": 0.5163771224312451,
+            "mae": 0.2723486963730755,
+            "mape_pct": 1.3135850175231931,
+            "naive_directional_accuracy": 0.1025641025641025,
+            "naive_mae": 0.2669230769230771,
+            "naive_mape_pct": 1.2888783803605892,
+            "naive_rmse": 0.3902169022085419,
+            "rmse": 0.388201911397677
+          },
+          "expected": {
+            "directional_accuracy": 0.5128205128205128,
+            "improvement_vs_naive_rmse_pct": 0.5163771224311596,
+            "mae": 0.27234869637307557,
+            "mape_pct": 1.3135850175231933,
+            "naive_directional_accuracy": 0.10256410256410256,
+            "naive_mae": 0.2669230769230771,
+            "naive_mape_pct": 1.2888783803605892,
+            "naive_rmse": 0.3902169022085419,
+            "rmse": 0.3882019113976774
+          },
+          "failure_reason": null,
+          "name": "summary_metrics",
+          "status": "pass"
+        },
+        {
+          "actual": {
+            "directional_accuracy": 0.5128205128205128,
+            "improvement_vs_naive_rmse_pct": 0.5163771224312451,
+            "mae": 0.2723486963730755,
+            "mape_pct": 1.3135850175231933,
+            "naive_directional_accuracy": 0.10256410256410256,
+            "naive_mae": 0.2669230769230771,
+            "naive_mape_pct": 1.2888783803605892,
+            "naive_rmse": 0.3902169022085419,
+            "rmse": 0.38820191139767707
+          },
+          "expected": {
+            "directional_accuracy": 0.5128205128205128,
+            "improvement_vs_naive_rmse_pct": 0.5163771224311596,
+            "mae": 0.27234869637307557,
+            "mape_pct": 1.3135850175231933,
+            "naive_directional_accuracy": 0.10256410256410256,
+            "naive_mae": 0.2669230769230771,
+            "naive_mape_pct": 1.2888783803605892,
+            "naive_rmse": 0.3902169022085419,
+            "rmse": 0.3882019113976774
+          },
+          "failure_reason": null,
+          "name": "mlflow_metrics",
+          "status": "pass"
+        },
+        {
+          "actual": {
+            "contains_test_history": false,
+            "finite_forecast": true,
+            "nobs": 444
+          },
+          "expected": {
+            "contains_test_history": false,
+            "finite_forecast": true,
+            "nobs": 444
+          },
+          "failure_reason": null,
+          "name": "model_artifact_reload",
+          "status": "pass"
+        },
+        {
+          "actual": {
+            "naive_directional_accuracy": 0.10256410256410256,
+            "naive_mae": 0.2669230769230771,
+            "naive_mape_pct": 1.2888783803605892,
+            "naive_rmse": 0.3902169022085419
+          },
+          "expected": {
+            "naive_directional_accuracy": 0.10256410256410256,
+            "naive_mae": 0.2669230769230771,
+            "naive_mape_pct": 1.2888783803605892,
+            "naive_rmse": 0.3902169022085419
+          },
+          "failure_reason": null,
+          "name": "naive_baseline_identity",
+          "status": "pass"
+        }
+      ],
+      "failure_reason": [],
+      "mlflow_metrics": {
+        "directional_accuracy": 0.5128205128205128,
+        "improvement_vs_naive_rmse_pct": 0.5163771224312451,
+        "mae": 0.2723486963730755,
+        "mape_pct": 1.3135850175231933,
+        "naive_directional_accuracy": 0.10256410256410256,
+        "naive_mae": 0.2669230769230771,
+        "naive_mape_pct": 1.2888783803605892,
+        "naive_rmse": 0.3902169022085419,
+        "rmse": 0.38820191139767707
+      },
+      "model": "arima",
+      "params": {
+        "contains_test_history": "False",
+        "dataset_version": "group_dataset_v1",
+        "deterministic": "True",
+        "history_end_ts": "2026-03-05T00:00:00Z",
+        "history_end_value": "20.29",
+        "horizon": "1",
+        "model": "arima",
+        "observation_count": "444",
+        "order": "(1, 1, 1)",
+        "order_d": "1",
+        "order_p": "1",
+        "order_q": "1",
+        "refit_during_rolling": "False",
+        "seed": "42",
+        "snapshot_name": "ohlcv_full_current",
+        "state_role": "pre_test_deployable",
+        "symbol": "ACB",
+        "target": "next_close",
+        "test_manifest_sha256": "62d82e13b48f337623235e20c2412d435395fef46fea5a24776ea895d1c8b828",
+        "test_steps": "78",
+        "timeframe": "1d",
+        "validation_steps": "77"
+      },
+      "recomputed_metrics": {
+        "directional_accuracy": 0.5128205128205128,
+        "improvement_vs_naive_rmse_pct": 0.5163771224311596,
+        "mae": 0.27234869637307557,
+        "mape_pct": 1.3135850175231933,
+        "naive_directional_accuracy": 0.10256410256410256,
+        "naive_mae": 0.2669230769230771,
+        "naive_mape_pct": 1.2888783803605892,
+        "naive_rmse": 0.3902169022085419,
+        "rmse": 0.3882019113976774
+      },
+      "run_id": "f1ef301caa064c858da753982f1564dc",
+      "source_commit": "ab1cf9af355211192c923c55aa042ff0413fdf6a",
+      "source_summary_status": "preliminary",
+      "status": "valid"
+    },
+    "gru": {
+      "artifacts": [
+        "metadata/reproducibility.json",
+        "metrics/ACB_1d_65f56eab440e4fa9a5192bfaddbcc96e.csv",
+        "model/MLmodel",
+        "model/conda.yaml",
+        "model/data/model.pth",
+        "model/data/pickle_module_info.txt",
+        "model/metadata/MLmodel",
+        "model/metadata/conda.yaml",
+        "model/metadata/python_env.yaml",
+        "model/metadata/requirements.txt",
+        "model/python_env.yaml",
+        "model/requirements.txt",
+        "model_state/gru_state_dict.pt",
+        "predictions/ACB_1d_65f56eab440e4fa9a5192bfaddbcc96e.csv",
+        "preprocessing/feature_scaler.joblib",
+        "preprocessing/target_scaler.joblib"
+      ],
+      "checks": [
+        {
+          "actual": "65f56eab440e4fa9a5192bfaddbcc96e",
+          "expected": "existing MLflow run",
+          "failure_reason": null,
+          "name": "run_exists",
+          "status": "pass"
+        },
+        {
+          "actual": "FINISHED",
+          "expected": "FINISHED",
+          "failure_reason": null,
+          "name": "run_status",
+          "status": "pass"
+        },
+        {
+          "actual": {},
+          "expected": "not explicitly exploratory, superseded, excluded, or invalid",
+          "failure_reason": null,
+          "name": "run_lifecycle",
+          "status": "pass"
+        },
+        {
+          "actual": {
+            "commit": "8a0d2dd3ec7a749aec2fedd8516e835390a9243d",
+            "in_evaluator_history": true,
+            "in_origin_develop": true
+          },
+          "expected": "ancestor of origin/develop or committed evaluator branch HEAD",
+          "failure_reason": null,
+          "name": "source_commit",
+          "status": "pass"
+        },
+        {
+          "actual": "8a0d2dd3ec7a749aec2fedd8516e835390a9243d",
+          "expected": "8a0d2dd3ec7a749aec2fedd8516e835390a9243d",
+          "failure_reason": null,
+          "name": "minimum_implementation_commit",
+          "status": "pass"
+        },
+        {
+          "actual": {
+            "missing": []
+          },
+          "expected": [
+            "dataset_version",
+            "snapshot_name",
+            "test_manifest_sha256",
+            "symbol",
+            "timeframe",
+            "model",
+            "target",
+            "horizon",
+            "seed",
+            "sequence_length",
+            "hidden_size",
+            "num_layers",
+            "dropout",
+            "batch_size",
+            "learning_rate",
+            "patience",
+            "max_epochs",
+            "input_size",
+            "feature_list"
+          ],
+          "failure_reason": null,
+          "name": "required_params",
+          "status": "pass"
+        },
+        {
+          "actual": {
+            "missing": []
+          },
+          "expected": [
+            "mae",
+            "rmse",
+            "mape_pct",
+            "directional_accuracy",
+            "naive_mae",
+            "naive_rmse",
+            "naive_mape_pct",
+            "naive_directional_accuracy",
+            "improvement_vs_naive_rmse_pct"
+          ],
+          "failure_reason": null,
+          "name": "required_metrics",
+          "status": "pass"
+        },
+        {
+          "actual": {
+            "dataset_version": "group_dataset_v1",
+            "horizon": "1",
+            "model": "gru",
+            "seed": "42",
+            "snapshot_name": "ohlcv_full_current",
+            "symbol": "ACB",
+            "target": "next_close",
+            "test_manifest_sha256": "62d82e13b48f337623235e20c2412d435395fef46fea5a24776ea895d1c8b828",
+            "timeframe": "1d"
+          },
+          "expected": {
+            "dataset_version": "group_dataset_v1",
+            "horizon": "1",
+            "model": "gru",
+            "seed": "42",
+            "snapshot_name": "ohlcv_full_current",
+            "symbol": "ACB",
+            "target": "next_close",
+            "test_manifest_sha256": "62d82e13b48f337623235e20c2412d435395fef46fea5a24776ea895d1c8b828",
+            "timeframe": "1d"
+          },
+          "failure_reason": null,
+          "name": "contract_params",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "metadata/reproducibility.json",
+            "metrics/ACB_1d_65f56eab440e4fa9a5192bfaddbcc96e.csv",
+            "model/MLmodel",
+            "model/conda.yaml",
+            "model/data/model.pth",
+            "model/data/pickle_module_info.txt",
+            "model/metadata/MLmodel",
+            "model/metadata/conda.yaml",
+            "model/metadata/python_env.yaml",
+            "model/metadata/requirements.txt",
+            "model/python_env.yaml",
+            "model/requirements.txt",
+            "model_state/gru_state_dict.pt",
+            "predictions/ACB_1d_65f56eab440e4fa9a5192bfaddbcc96e.csv",
+            "preprocessing/feature_scaler.joblib",
+            "preprocessing/target_scaler.joblib"
+          ],
+          "expected": "nonempty accessible artifact tree",
+          "failure_reason": null,
+          "name": "artifact_uri",
+          "status": "pass"
+        },
+        {
+          "actual": {
+            "missing": []
+          },
+          "expected": [
+            "model/MLmodel",
+            "model_state/gru_state_dict.pt",
+            "preprocessing/feature_scaler.joblib",
+            "preprocessing/target_scaler.joblib",
+            "metadata/reproducibility.json"
+          ],
+          "failure_reason": null,
+          "name": "required_artifacts",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "predictions/ACB_1d_65f56eab440e4fa9a5192bfaddbcc96e.csv",
+            "metrics/ACB_1d_65f56eab440e4fa9a5192bfaddbcc96e.csv"
+          ],
+          "expected": "one prediction CSV and one summary CSV",
+          "failure_reason": null,
+          "name": "csv_artifacts",
+          "status": "pass"
+        },
+        {
+          "actual": "readable CSVs",
+          "expected": "readable CSVs",
+          "failure_reason": null,
+          "name": "csv_download",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "dataset_version",
+            "snapshot_name",
+            "test_manifest_sha256",
+            "symbol",
+            "timeframe",
+            "model",
+            "split",
+            "input_ts",
+            "target_ts",
+            "current_close",
+            "actual_close",
+            "predicted_close",
+            "run_id",
+            "seed"
+          ],
+          "expected": [
+            "dataset_version",
+            "snapshot_name",
+            "test_manifest_sha256",
+            "symbol",
+            "timeframe",
+            "model",
+            "split",
+            "input_ts",
+            "target_ts",
+            "current_close",
+            "actual_close",
+            "predicted_close",
+            "run_id",
+            "seed"
+          ],
+          "failure_reason": null,
+          "name": "prediction_schema",
+          "status": "pass"
+        },
+        {
+          "actual": 78,
+          "expected": 78,
+          "failure_reason": null,
+          "name": "prediction_rows",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "group_dataset_v1"
+          ],
+          "expected": "group_dataset_v1",
+          "failure_reason": null,
+          "name": "prediction_dataset_version",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "ohlcv_full_current"
+          ],
+          "expected": "ohlcv_full_current",
+          "failure_reason": null,
+          "name": "prediction_snapshot_name",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "62d82e13b48f337623235e20c2412d435395fef46fea5a24776ea895d1c8b828"
+          ],
+          "expected": "62d82e13b48f337623235e20c2412d435395fef46fea5a24776ea895d1c8b828",
+          "failure_reason": null,
+          "name": "prediction_test_manifest_sha256",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "ACB"
+          ],
+          "expected": "ACB",
+          "failure_reason": null,
+          "name": "prediction_symbol",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "1d"
+          ],
+          "expected": "1d",
+          "failure_reason": null,
+          "name": "prediction_timeframe",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "gru"
+          ],
+          "expected": "gru",
+          "failure_reason": null,
+          "name": "prediction_model",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "test"
+          ],
+          "expected": "test",
+          "failure_reason": null,
+          "name": "prediction_split",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "65f56eab440e4fa9a5192bfaddbcc96e"
+          ],
+          "expected": "65f56eab440e4fa9a5192bfaddbcc96e",
+          "failure_reason": null,
+          "name": "prediction_run_id",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            42
+          ],
+          "expected": 42,
+          "failure_reason": null,
+          "name": "prediction_seed",
+          "status": "pass"
+        },
+        {
+          "actual": "valid",
+          "expected": "strictly ordered unique horizon-one targets",
+          "failure_reason": null,
+          "name": "prediction_chronology",
+          "status": "pass"
+        },
+        {
+          "actual": "all finite",
+          "expected": "all finite",
+          "failure_reason": null,
+          "name": "prediction_finite",
+          "status": "pass"
+        },
+        {
+          "actual": "match",
+          "expected": "exact locked-loader row identity",
+          "failure_reason": null,
+          "name": "locked_manifest_rows",
+          "status": "pass"
+        },
+        {
+          "actual": {
+            "directional_accuracy": 0.47435897435897434,
+            "improvement_vs_naive_rmse_pct": -88.62573220578025,
+            "mae": 0.5393094254762704,
+            "mape_pct": 2.534783277033477,
+            "naive_directional_accuracy": 0.10256410256410256,
+            "naive_mae": 0.2669230769230771,
+            "naive_mape_pct": 1.2888783803605892,
+            "naive_rmse": 0.3902169022085419,
+            "rmse": 0.7360494889815756
+          },
+          "expected": "finite metrics with RMSE >= MAE",
+          "failure_reason": null,
+          "name": "metric_recomputation",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "dataset_version",
+            "snapshot_name",
+            "test_manifest_sha256",
+            "symbol",
+            "timeframe",
+            "model",
+            "split",
+            "n_samples",
+            "mae",
+            "rmse",
+            "mape_pct",
+            "directional_accuracy",
+            "naive_mae",
+            "naive_rmse",
+            "naive_mape_pct",
+            "naive_directional_accuracy",
+            "improvement_vs_naive_rmse_pct",
+            "run_id",
+            "seed",
+            "status"
+          ],
+          "expected": [
+            "dataset_version",
+            "snapshot_name",
+            "test_manifest_sha256",
+            "symbol",
+            "timeframe",
+            "model",
+            "split",
+            "n_samples",
+            "mae",
+            "rmse",
+            "mape_pct",
+            "directional_accuracy",
+            "naive_mae",
+            "naive_rmse",
+            "naive_mape_pct",
+            "naive_directional_accuracy",
+            "improvement_vs_naive_rmse_pct",
+            "run_id",
+            "seed",
+            "status"
+          ],
+          "failure_reason": null,
+          "name": "summary_schema",
+          "status": "pass"
+        },
+        {
+          "actual": "group_dataset_v1",
+          "expected": "group_dataset_v1",
+          "failure_reason": null,
+          "name": "summary_dataset_version",
+          "status": "pass"
+        },
+        {
+          "actual": "ohlcv_full_current",
+          "expected": "ohlcv_full_current",
+          "failure_reason": null,
+          "name": "summary_snapshot_name",
+          "status": "pass"
+        },
+        {
+          "actual": "62d82e13b48f337623235e20c2412d435395fef46fea5a24776ea895d1c8b828",
+          "expected": "62d82e13b48f337623235e20c2412d435395fef46fea5a24776ea895d1c8b828",
+          "failure_reason": null,
+          "name": "summary_test_manifest_sha256",
+          "status": "pass"
+        },
+        {
+          "actual": "ACB",
+          "expected": "ACB",
+          "failure_reason": null,
+          "name": "summary_symbol",
+          "status": "pass"
+        },
+        {
+          "actual": "1d",
+          "expected": "1d",
+          "failure_reason": null,
+          "name": "summary_timeframe",
+          "status": "pass"
+        },
+        {
+          "actual": "gru",
+          "expected": "gru",
+          "failure_reason": null,
+          "name": "summary_model",
+          "status": "pass"
+        },
+        {
+          "actual": "test",
+          "expected": "test",
+          "failure_reason": null,
+          "name": "summary_split",
+          "status": "pass"
+        },
+        {
+          "actual": 78,
+          "expected": 78,
+          "failure_reason": null,
+          "name": "summary_n_samples",
+          "status": "pass"
+        },
+        {
+          "actual": "65f56eab440e4fa9a5192bfaddbcc96e",
+          "expected": "65f56eab440e4fa9a5192bfaddbcc96e",
+          "failure_reason": null,
+          "name": "summary_run_id",
+          "status": "pass"
+        },
+        {
+          "actual": 42,
+          "expected": 42,
+          "failure_reason": null,
+          "name": "summary_seed",
+          "status": "pass"
+        },
+        {
+          "actual": "preliminary",
+          "expected": [
+            "invalid",
+            "preliminary",
+            "valid"
+          ],
+          "failure_reason": null,
+          "name": "summary_status",
+          "status": "pass"
+        },
+        {
+          "actual": "preliminary",
+          "expected": [
+            "preliminary",
+            "valid"
+          ],
+          "failure_reason": null,
+          "name": "summary_eligibility",
+          "status": "pass"
+        },
+        {
+          "actual": {
+            "directional_accuracy": 0.4743589743589743,
+            "improvement_vs_naive_rmse_pct": -88.62573220578022,
+            "mae": 0.5393094254762701,
+            "mape_pct": 2.5347832770334757,
+            "naive_directional_accuracy": 0.1025641025641025,
+            "naive_mae": 0.2669230769230771,
+            "naive_mape_pct": 1.2888783803605892,
+            "naive_rmse": 0.3902169022085419,
+            "rmse": 0.7360494889815755
+          },
+          "expected": {
+            "directional_accuracy": 0.47435897435897434,
+            "improvement_vs_naive_rmse_pct": -88.62573220578025,
+            "mae": 0.5393094254762704,
+            "mape_pct": 2.534783277033477,
+            "naive_directional_accuracy": 0.10256410256410256,
+            "naive_mae": 0.2669230769230771,
+            "naive_mape_pct": 1.2888783803605892,
+            "naive_rmse": 0.3902169022085419,
+            "rmse": 0.7360494889815756
+          },
+          "failure_reason": null,
+          "name": "summary_metrics",
+          "status": "pass"
+        },
+        {
+          "actual": {
+            "directional_accuracy": 0.47435897435897434,
+            "improvement_vs_naive_rmse_pct": -88.62573220578022,
+            "mae": 0.5393094254762701,
+            "mape_pct": 2.5347832770334753,
+            "naive_directional_accuracy": 0.10256410256410256,
+            "naive_mae": 0.2669230769230771,
+            "naive_mape_pct": 1.2888783803605892,
+            "naive_rmse": 0.3902169022085419,
+            "rmse": 0.7360494889815755
+          },
+          "expected": {
+            "directional_accuracy": 0.47435897435897434,
+            "improvement_vs_naive_rmse_pct": -88.62573220578025,
+            "mae": 0.5393094254762704,
+            "mape_pct": 2.534783277033477,
+            "naive_directional_accuracy": 0.10256410256410256,
+            "naive_mae": 0.2669230769230771,
+            "naive_mape_pct": 1.2888783803605892,
+            "naive_rmse": 0.3902169022085419,
+            "rmse": 0.7360494889815756
+          },
+          "failure_reason": null,
+          "name": "mlflow_metrics",
+          "status": "pass"
+        },
+        {
+          "actual": {
+            "finite_prediction": true,
+            "strict": true
+          },
+          "expected": "strict GRU state, matching metadata/scalers, finite prediction",
+          "failure_reason": null,
+          "name": "model_artifact_reload",
+          "status": "pass"
+        },
+        {
+          "actual": {
+            "naive_directional_accuracy": 0.10256410256410256,
+            "naive_mae": 0.2669230769230771,
+            "naive_mape_pct": 1.2888783803605892,
+            "naive_rmse": 0.3902169022085419
+          },
+          "expected": {
+            "naive_directional_accuracy": 0.10256410256410256,
+            "naive_mae": 0.2669230769230771,
+            "naive_mape_pct": 1.2888783803605892,
+            "naive_rmse": 0.3902169022085419
+          },
+          "failure_reason": null,
+          "name": "naive_baseline_identity",
+          "status": "pass"
+        }
+      ],
+      "failure_reason": [],
+      "mlflow_metrics": {
+        "directional_accuracy": 0.47435897435897434,
+        "improvement_vs_naive_rmse_pct": -88.62573220578022,
+        "mae": 0.5393094254762701,
+        "mape_pct": 2.5347832770334753,
+        "naive_directional_accuracy": 0.10256410256410256,
+        "naive_mae": 0.2669230769230771,
+        "naive_mape_pct": 1.2888783803605892,
+        "naive_rmse": 0.3902169022085419,
+        "rmse": 0.7360494889815755
+      },
+      "model": "gru",
+      "params": {
+        "batch_size": "32",
+        "best_epoch": "7",
+        "best_validation_loss": "0.0018967047134148224",
+        "dataset_version": "group_dataset_v1",
+        "deterministic_algorithms": "True",
+        "device": "cpu",
+        "dropout": "0.2",
+        "epochs_ran": "17",
+        "feature_list": "close,moving_average_7",
+        "hidden_size": "64",
+        "horizon": "1",
+        "input_size": "2",
+        "learning_rate": "0.0005",
+        "max_epochs": "60",
+        "min_delta": "0.0",
+        "model": "gru",
+        "moving_average_window": "7",
+        "num_layers": "2",
+        "patience": "10",
+        "seed": "42",
+        "sequence_length": "30",
+        "snapshot_name": "ohlcv_full_current",
+        "symbol": "ACB",
+        "target": "next_close",
+        "test_manifest_sha256": "62d82e13b48f337623235e20c2412d435395fef46fea5a24776ea895d1c8b828",
+        "timeframe": "1d",
+        "weight_decay": "0.0001"
+      },
+      "recomputed_metrics": {
+        "directional_accuracy": 0.47435897435897434,
+        "improvement_vs_naive_rmse_pct": -88.62573220578025,
+        "mae": 0.5393094254762704,
+        "mape_pct": 2.534783277033477,
+        "naive_directional_accuracy": 0.10256410256410256,
+        "naive_mae": 0.2669230769230771,
+        "naive_mape_pct": 1.2888783803605892,
+        "naive_rmse": 0.3902169022085419,
+        "rmse": 0.7360494889815756
+      },
+      "run_id": "65f56eab440e4fa9a5192bfaddbcc96e",
+      "source_commit": "8a0d2dd3ec7a749aec2fedd8516e835390a9243d",
+      "source_summary_status": "preliminary",
+      "status": "valid"
+    },
+    "random_forest": {
+      "artifacts": [
+        "metrics/ACB_1d_db37627439134d56a250c8b898969d77.csv",
+        "model/MLmodel",
+        "model/conda.yaml",
+        "model/metadata/MLmodel",
+        "model/metadata/conda.yaml",
+        "model/metadata/python_env.yaml",
+        "model/metadata/requirements.txt",
+        "model/model.pkl",
+        "model/python_env.yaml",
+        "model/requirements.txt",
+        "predictions/ACB_1d_db37627439134d56a250c8b898969d77.csv"
+      ],
+      "checks": [
+        {
+          "actual": "db37627439134d56a250c8b898969d77",
+          "expected": "existing MLflow run",
+          "failure_reason": null,
+          "name": "run_exists",
+          "status": "pass"
+        },
+        {
+          "actual": "FINISHED",
+          "expected": "FINISHED",
+          "failure_reason": null,
+          "name": "run_status",
+          "status": "pass"
+        },
+        {
+          "actual": {},
+          "expected": "not explicitly exploratory, superseded, excluded, or invalid",
+          "failure_reason": null,
+          "name": "run_lifecycle",
+          "status": "pass"
+        },
+        {
+          "actual": {
+            "commit": "e826aea5a06f4a2adb57f7aa3967cf03f3ce5471",
+            "in_evaluator_history": true,
+            "in_origin_develop": false
+          },
+          "expected": "ancestor of origin/develop or committed evaluator branch HEAD",
+          "failure_reason": null,
+          "name": "source_commit",
+          "status": "pass"
+        },
+        {
+          "actual": "e826aea5a06f4a2adb57f7aa3967cf03f3ce5471",
+          "expected": "0989aee0d668bf7876decef033e62df7415ec295",
+          "failure_reason": null,
+          "name": "minimum_implementation_commit",
+          "status": "pass"
+        },
+        {
+          "actual": {
+            "missing": []
+          },
+          "expected": [
+            "dataset_version",
+            "snapshot_name",
+            "test_manifest_sha256",
+            "symbol",
+            "timeframe",
+            "model",
+            "target",
+            "horizon",
+            "seed",
+            "n_estimators",
+            "max_depth",
+            "min_samples_split",
+            "min_samples_leaf",
+            "random_state",
+            "feature_list"
+          ],
+          "failure_reason": null,
+          "name": "required_params",
+          "status": "pass"
+        },
+        {
+          "actual": {
+            "missing": []
+          },
+          "expected": [
+            "mae",
+            "rmse",
+            "mape_pct",
+            "directional_accuracy",
+            "naive_mae",
+            "naive_rmse",
+            "naive_mape_pct",
+            "naive_directional_accuracy",
+            "improvement_vs_naive_rmse_pct"
+          ],
+          "failure_reason": null,
+          "name": "required_metrics",
+          "status": "pass"
+        },
+        {
+          "actual": {
+            "dataset_version": "group_dataset_v1",
+            "horizon": "1",
+            "model": "random_forest",
+            "seed": "42",
+            "snapshot_name": "ohlcv_full_current",
+            "symbol": "ACB",
+            "target": "next_close",
+            "test_manifest_sha256": "62d82e13b48f337623235e20c2412d435395fef46fea5a24776ea895d1c8b828",
+            "timeframe": "1d"
+          },
+          "expected": {
+            "dataset_version": "group_dataset_v1",
+            "horizon": "1",
+            "model": "random_forest",
+            "seed": "42",
+            "snapshot_name": "ohlcv_full_current",
+            "symbol": "ACB",
+            "target": "next_close",
+            "test_manifest_sha256": "62d82e13b48f337623235e20c2412d435395fef46fea5a24776ea895d1c8b828",
+            "timeframe": "1d"
+          },
+          "failure_reason": null,
+          "name": "contract_params",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "metrics/ACB_1d_db37627439134d56a250c8b898969d77.csv",
+            "model/MLmodel",
+            "model/conda.yaml",
+            "model/metadata/MLmodel",
+            "model/metadata/conda.yaml",
+            "model/metadata/python_env.yaml",
+            "model/metadata/requirements.txt",
+            "model/model.pkl",
+            "model/python_env.yaml",
+            "model/requirements.txt",
+            "predictions/ACB_1d_db37627439134d56a250c8b898969d77.csv"
+          ],
+          "expected": "nonempty accessible artifact tree",
+          "failure_reason": null,
+          "name": "artifact_uri",
+          "status": "pass"
+        },
+        {
+          "actual": {
+            "missing": []
+          },
+          "expected": [
+            "model/MLmodel"
+          ],
+          "failure_reason": null,
+          "name": "required_artifacts",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "predictions/ACB_1d_db37627439134d56a250c8b898969d77.csv",
+            "metrics/ACB_1d_db37627439134d56a250c8b898969d77.csv"
+          ],
+          "expected": "one prediction CSV and one summary CSV",
+          "failure_reason": null,
+          "name": "csv_artifacts",
+          "status": "pass"
+        },
+        {
+          "actual": "readable CSVs",
+          "expected": "readable CSVs",
+          "failure_reason": null,
+          "name": "csv_download",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "dataset_version",
+            "snapshot_name",
+            "test_manifest_sha256",
+            "symbol",
+            "timeframe",
+            "model",
+            "split",
+            "input_ts",
+            "target_ts",
+            "current_close",
+            "actual_close",
+            "predicted_close",
+            "run_id",
+            "seed"
+          ],
+          "expected": [
+            "dataset_version",
+            "snapshot_name",
+            "test_manifest_sha256",
+            "symbol",
+            "timeframe",
+            "model",
+            "split",
+            "input_ts",
+            "target_ts",
+            "current_close",
+            "actual_close",
+            "predicted_close",
+            "run_id",
+            "seed"
+          ],
+          "failure_reason": null,
+          "name": "prediction_schema",
+          "status": "pass"
+        },
+        {
+          "actual": 78,
+          "expected": 78,
+          "failure_reason": null,
+          "name": "prediction_rows",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "group_dataset_v1"
+          ],
+          "expected": "group_dataset_v1",
+          "failure_reason": null,
+          "name": "prediction_dataset_version",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "ohlcv_full_current"
+          ],
+          "expected": "ohlcv_full_current",
+          "failure_reason": null,
+          "name": "prediction_snapshot_name",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "62d82e13b48f337623235e20c2412d435395fef46fea5a24776ea895d1c8b828"
+          ],
+          "expected": "62d82e13b48f337623235e20c2412d435395fef46fea5a24776ea895d1c8b828",
+          "failure_reason": null,
+          "name": "prediction_test_manifest_sha256",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "ACB"
+          ],
+          "expected": "ACB",
+          "failure_reason": null,
+          "name": "prediction_symbol",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "1d"
+          ],
+          "expected": "1d",
+          "failure_reason": null,
+          "name": "prediction_timeframe",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "random_forest"
+          ],
+          "expected": "random_forest",
+          "failure_reason": null,
+          "name": "prediction_model",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "test"
+          ],
+          "expected": "test",
+          "failure_reason": null,
+          "name": "prediction_split",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "db37627439134d56a250c8b898969d77"
+          ],
+          "expected": "db37627439134d56a250c8b898969d77",
+          "failure_reason": null,
+          "name": "prediction_run_id",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            42
+          ],
+          "expected": 42,
+          "failure_reason": null,
+          "name": "prediction_seed",
+          "status": "pass"
+        },
+        {
+          "actual": "valid",
+          "expected": "strictly ordered unique horizon-one targets",
+          "failure_reason": null,
+          "name": "prediction_chronology",
+          "status": "pass"
+        },
+        {
+          "actual": "all finite",
+          "expected": "all finite",
+          "failure_reason": null,
+          "name": "prediction_finite",
+          "status": "pass"
+        },
+        {
+          "actual": "match",
+          "expected": "exact locked-loader row identity",
+          "failure_reason": null,
+          "name": "locked_manifest_rows",
+          "status": "pass"
+        },
+        {
+          "actual": {
+            "directional_accuracy": 0.38461538461538464,
+            "improvement_vs_naive_rmse_pct": -63.20026293698421,
+            "mae": 0.5256917774782239,
+            "mape_pct": 2.5733422799615013,
+            "naive_directional_accuracy": 0.10256410256410256,
+            "naive_mae": 0.2669230769230771,
+            "naive_mape_pct": 1.2888783803605892,
+            "naive_rmse": 0.3902169022085419,
+            "rmse": 0.6368350104288949
+          },
+          "expected": "finite metrics with RMSE >= MAE",
+          "failure_reason": null,
+          "name": "metric_recomputation",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "dataset_version",
+            "snapshot_name",
+            "test_manifest_sha256",
+            "symbol",
+            "timeframe",
+            "model",
+            "split",
+            "n_samples",
+            "mae",
+            "rmse",
+            "mape_pct",
+            "directional_accuracy",
+            "naive_mae",
+            "naive_rmse",
+            "naive_mape_pct",
+            "naive_directional_accuracy",
+            "improvement_vs_naive_rmse_pct",
+            "run_id",
+            "seed",
+            "status"
+          ],
+          "expected": [
+            "dataset_version",
+            "snapshot_name",
+            "test_manifest_sha256",
+            "symbol",
+            "timeframe",
+            "model",
+            "split",
+            "n_samples",
+            "mae",
+            "rmse",
+            "mape_pct",
+            "directional_accuracy",
+            "naive_mae",
+            "naive_rmse",
+            "naive_mape_pct",
+            "naive_directional_accuracy",
+            "improvement_vs_naive_rmse_pct",
+            "run_id",
+            "seed",
+            "status"
+          ],
+          "failure_reason": null,
+          "name": "summary_schema",
+          "status": "pass"
+        },
+        {
+          "actual": "group_dataset_v1",
+          "expected": "group_dataset_v1",
+          "failure_reason": null,
+          "name": "summary_dataset_version",
+          "status": "pass"
+        },
+        {
+          "actual": "ohlcv_full_current",
+          "expected": "ohlcv_full_current",
+          "failure_reason": null,
+          "name": "summary_snapshot_name",
+          "status": "pass"
+        },
+        {
+          "actual": "62d82e13b48f337623235e20c2412d435395fef46fea5a24776ea895d1c8b828",
+          "expected": "62d82e13b48f337623235e20c2412d435395fef46fea5a24776ea895d1c8b828",
+          "failure_reason": null,
+          "name": "summary_test_manifest_sha256",
+          "status": "pass"
+        },
+        {
+          "actual": "ACB",
+          "expected": "ACB",
+          "failure_reason": null,
+          "name": "summary_symbol",
+          "status": "pass"
+        },
+        {
+          "actual": "1d",
+          "expected": "1d",
+          "failure_reason": null,
+          "name": "summary_timeframe",
+          "status": "pass"
+        },
+        {
+          "actual": "random_forest",
+          "expected": "random_forest",
+          "failure_reason": null,
+          "name": "summary_model",
+          "status": "pass"
+        },
+        {
+          "actual": "test",
+          "expected": "test",
+          "failure_reason": null,
+          "name": "summary_split",
+          "status": "pass"
+        },
+        {
+          "actual": 78,
+          "expected": 78,
+          "failure_reason": null,
+          "name": "summary_n_samples",
+          "status": "pass"
+        },
+        {
+          "actual": "db37627439134d56a250c8b898969d77",
+          "expected": "db37627439134d56a250c8b898969d77",
+          "failure_reason": null,
+          "name": "summary_run_id",
+          "status": "pass"
+        },
+        {
+          "actual": 42,
+          "expected": 42,
+          "failure_reason": null,
+          "name": "summary_seed",
+          "status": "pass"
+        },
+        {
+          "actual": "preliminary",
+          "expected": [
+            "invalid",
+            "preliminary",
+            "valid"
+          ],
+          "failure_reason": null,
+          "name": "summary_status",
+          "status": "pass"
+        },
+        {
+          "actual": "preliminary",
+          "expected": [
+            "preliminary",
+            "valid"
+          ],
+          "failure_reason": null,
+          "name": "summary_eligibility",
+          "status": "pass"
+        },
+        {
+          "actual": {
+            "directional_accuracy": 0.3846153846153846,
+            "improvement_vs_naive_rmse_pct": -63.20026293698412,
+            "mae": 0.5256917774782237,
+            "mape_pct": 2.5733422799615013,
+            "naive_directional_accuracy": 0.1025641025641025,
+            "naive_mae": 0.2669230769230771,
+            "naive_mape_pct": 1.2888783803605892,
+            "naive_rmse": 0.3902169022085419,
+            "rmse": 0.6368350104288946
+          },
+          "expected": {
+            "directional_accuracy": 0.38461538461538464,
+            "improvement_vs_naive_rmse_pct": -63.20026293698421,
+            "mae": 0.5256917774782239,
+            "mape_pct": 2.5733422799615013,
+            "naive_directional_accuracy": 0.10256410256410256,
+            "naive_mae": 0.2669230769230771,
+            "naive_mape_pct": 1.2888783803605892,
+            "naive_rmse": 0.3902169022085419,
+            "rmse": 0.6368350104288949
+          },
+          "failure_reason": null,
+          "name": "summary_metrics",
+          "status": "pass"
+        },
+        {
+          "actual": {
+            "directional_accuracy": 0.38461538461538464,
+            "improvement_vs_naive_rmse_pct": -63.20026293698412,
+            "mae": 0.5256917774782237,
+            "mape_pct": 2.5733422799615013,
+            "naive_directional_accuracy": 0.10256410256410256,
+            "naive_mae": 0.2669230769230771,
+            "naive_mape_pct": 1.2888783803605892,
+            "naive_rmse": 0.3902169022085419,
+            "rmse": 0.6368350104288946
+          },
+          "expected": {
+            "directional_accuracy": 0.38461538461538464,
+            "improvement_vs_naive_rmse_pct": -63.20026293698421,
+            "mae": 0.5256917774782239,
+            "mape_pct": 2.5733422799615013,
+            "naive_directional_accuracy": 0.10256410256410256,
+            "naive_mae": 0.2669230769230771,
+            "naive_mape_pct": 1.2888783803605892,
+            "naive_rmse": 0.3902169022085419,
+            "rmse": 0.6368350104288949
+          },
+          "failure_reason": null,
+          "name": "mlflow_metrics",
+          "status": "pass"
+        },
+        {
+          "actual": {
+            "features": [
+              "open",
+              "high",
+              "low",
+              "close",
+              "volume",
+              "return_1",
+              "volume_return_1",
+              "close_lag_1",
+              "close_lag_3",
+              "close_lag_5",
+              "close_lag_10",
+              "close_lag_20",
+              "rolling_mean_5",
+              "rolling_mean_10",
+              "rolling_mean_20",
+              "rolling_std_5",
+              "rolling_std_10",
+              "rolling_std_20"
+            ],
+            "finite_prediction": true
+          },
+          "expected": {
+            "features": [
+              "open",
+              "high",
+              "low",
+              "close",
+              "volume",
+              "return_1",
+              "volume_return_1",
+              "close_lag_1",
+              "close_lag_3",
+              "close_lag_5",
+              "close_lag_10",
+              "close_lag_20",
+              "rolling_mean_5",
+              "rolling_mean_10",
+              "rolling_mean_20",
+              "rolling_std_5",
+              "rolling_std_10",
+              "rolling_std_20"
+            ],
+            "finite_prediction": true
+          },
+          "failure_reason": null,
+          "name": "model_artifact_reload",
+          "status": "pass"
+        },
+        {
+          "actual": {
+            "naive_directional_accuracy": 0.10256410256410256,
+            "naive_mae": 0.2669230769230771,
+            "naive_mape_pct": 1.2888783803605892,
+            "naive_rmse": 0.3902169022085419
+          },
+          "expected": {
+            "naive_directional_accuracy": 0.10256410256410256,
+            "naive_mae": 0.2669230769230771,
+            "naive_mape_pct": 1.2888783803605892,
+            "naive_rmse": 0.3902169022085419
+          },
+          "failure_reason": null,
+          "name": "naive_baseline_identity",
+          "status": "pass"
+        }
+      ],
+      "failure_reason": [],
+      "mlflow_metrics": {
+        "directional_accuracy": 0.38461538461538464,
+        "improvement_vs_naive_rmse_pct": -63.20026293698412,
+        "mae": 0.5256917774782237,
+        "mape_pct": 2.5733422799615013,
+        "naive_directional_accuracy": 0.10256410256410256,
+        "naive_mae": 0.2669230769230771,
+        "naive_mape_pct": 1.2888783803605892,
+        "naive_rmse": 0.3902169022085419,
+        "rmse": 0.6368350104288946
+      },
+      "model": "random_forest",
+      "params": {
+        "bootstrap": "True",
+        "ccp_alpha": "0.0",
+        "criterion": "squared_error",
+        "dataset_version": "group_dataset_v1",
+        "feature_list": "open,high,low,close,volume,return_1,volume_return_1,close_lag_1,close_lag_3,close_lag_5,close_lag_10,close_lag_20,rolling_mean_5,rolling_mean_10,rolling_mean_20,rolling_std_5,rolling_std_10,rolling_std_20",
+        "horizon": "1",
+        "max_depth": "10",
+        "max_features": "1.0",
+        "min_impurity_decrease": "0.0",
+        "min_samples_leaf": "2",
+        "min_samples_split": "5",
+        "min_weight_fraction_leaf": "0.0",
+        "model": "random_forest",
+        "n_estimators": "200",
+        "n_jobs": "-1",
+        "oob_score": "False",
+        "random_state": "42",
+        "seed": "42",
+        "snapshot_name": "ohlcv_full_current",
+        "symbol": "ACB",
+        "target": "next_close",
+        "test_manifest_sha256": "62d82e13b48f337623235e20c2412d435395fef46fea5a24776ea895d1c8b828",
+        "timeframe": "1d",
+        "verbose": "0",
+        "warm_start": "False"
+      },
+      "recomputed_metrics": {
+        "directional_accuracy": 0.38461538461538464,
+        "improvement_vs_naive_rmse_pct": -63.20026293698421,
+        "mae": 0.5256917774782239,
+        "mape_pct": 2.5733422799615013,
+        "naive_directional_accuracy": 0.10256410256410256,
+        "naive_mae": 0.2669230769230771,
+        "naive_mape_pct": 1.2888783803605892,
+        "naive_rmse": 0.3902169022085419,
+        "rmse": 0.6368350104288949
+      },
+      "run_id": "db37627439134d56a250c8b898969d77",
+      "source_commit": "e826aea5a06f4a2adb57f7aa3967cf03f3ce5471",
+      "source_summary_status": "preliminary",
+      "status": "valid"
+    },
+    "xgboost": {
+      "artifacts": [
+        "metrics/ACB_1d_55ea7a8c7e3a49ed813ac6294fb26a80.csv",
+        "model/MLmodel",
+        "model/conda.yaml",
+        "model/metadata/MLmodel",
+        "model/metadata/conda.yaml",
+        "model/metadata/python_env.yaml",
+        "model/metadata/requirements.txt",
+        "model/model.xgb",
+        "model/python_env.yaml",
+        "model/requirements.txt",
+        "predictions/ACB_1d_55ea7a8c7e3a49ed813ac6294fb26a80.csv",
+        "preprocessing/standard_scaler.joblib"
+      ],
+      "checks": [
+        {
+          "actual": "55ea7a8c7e3a49ed813ac6294fb26a80",
+          "expected": "existing MLflow run",
+          "failure_reason": null,
+          "name": "run_exists",
+          "status": "pass"
+        },
+        {
+          "actual": "FINISHED",
+          "expected": "FINISHED",
+          "failure_reason": null,
+          "name": "run_status",
+          "status": "pass"
+        },
+        {
+          "actual": {},
+          "expected": "not explicitly exploratory, superseded, excluded, or invalid",
+          "failure_reason": null,
+          "name": "run_lifecycle",
+          "status": "pass"
+        },
+        {
+          "actual": {
+            "commit": "e826aea5a06f4a2adb57f7aa3967cf03f3ce5471",
+            "in_evaluator_history": true,
+            "in_origin_develop": false
+          },
+          "expected": "ancestor of origin/develop or committed evaluator branch HEAD",
+          "failure_reason": null,
+          "name": "source_commit",
+          "status": "pass"
+        },
+        {
+          "actual": "e826aea5a06f4a2adb57f7aa3967cf03f3ce5471",
+          "expected": "de996d7778f90b119b2497bd66b5f1f71f6186b0",
+          "failure_reason": null,
+          "name": "minimum_implementation_commit",
+          "status": "pass"
+        },
+        {
+          "actual": {
+            "missing": []
+          },
+          "expected": [
+            "dataset_version",
+            "snapshot_name",
+            "test_manifest_sha256",
+            "symbol",
+            "timeframe",
+            "model",
+            "target",
+            "horizon",
+            "seed",
+            "n_estimators",
+            "max_depth",
+            "learning_rate",
+            "subsample",
+            "colsample_bytree",
+            "random_state",
+            "feature_list"
+          ],
+          "failure_reason": null,
+          "name": "required_params",
+          "status": "pass"
+        },
+        {
+          "actual": {
+            "missing": []
+          },
+          "expected": [
+            "mae",
+            "rmse",
+            "mape_pct",
+            "directional_accuracy",
+            "naive_mae",
+            "naive_rmse",
+            "naive_mape_pct",
+            "naive_directional_accuracy",
+            "improvement_vs_naive_rmse_pct"
+          ],
+          "failure_reason": null,
+          "name": "required_metrics",
+          "status": "pass"
+        },
+        {
+          "actual": {
+            "dataset_version": "group_dataset_v1",
+            "horizon": "1",
+            "model": "xgboost",
+            "seed": "42",
+            "snapshot_name": "ohlcv_full_current",
+            "symbol": "ACB",
+            "target": "next_close",
+            "test_manifest_sha256": "62d82e13b48f337623235e20c2412d435395fef46fea5a24776ea895d1c8b828",
+            "timeframe": "1d"
+          },
+          "expected": {
+            "dataset_version": "group_dataset_v1",
+            "horizon": "1",
+            "model": "xgboost",
+            "seed": "42",
+            "snapshot_name": "ohlcv_full_current",
+            "symbol": "ACB",
+            "target": "next_close",
+            "test_manifest_sha256": "62d82e13b48f337623235e20c2412d435395fef46fea5a24776ea895d1c8b828",
+            "timeframe": "1d"
+          },
+          "failure_reason": null,
+          "name": "contract_params",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "metrics/ACB_1d_55ea7a8c7e3a49ed813ac6294fb26a80.csv",
+            "model/MLmodel",
+            "model/conda.yaml",
+            "model/metadata/MLmodel",
+            "model/metadata/conda.yaml",
+            "model/metadata/python_env.yaml",
+            "model/metadata/requirements.txt",
+            "model/model.xgb",
+            "model/python_env.yaml",
+            "model/requirements.txt",
+            "predictions/ACB_1d_55ea7a8c7e3a49ed813ac6294fb26a80.csv",
+            "preprocessing/standard_scaler.joblib"
+          ],
+          "expected": "nonempty accessible artifact tree",
+          "failure_reason": null,
+          "name": "artifact_uri",
+          "status": "pass"
+        },
+        {
+          "actual": {
+            "missing": []
+          },
+          "expected": [
+            "model/MLmodel",
+            "preprocessing/standard_scaler.joblib"
+          ],
+          "failure_reason": null,
+          "name": "required_artifacts",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "predictions/ACB_1d_55ea7a8c7e3a49ed813ac6294fb26a80.csv",
+            "metrics/ACB_1d_55ea7a8c7e3a49ed813ac6294fb26a80.csv"
+          ],
+          "expected": "one prediction CSV and one summary CSV",
+          "failure_reason": null,
+          "name": "csv_artifacts",
+          "status": "pass"
+        },
+        {
+          "actual": "readable CSVs",
+          "expected": "readable CSVs",
+          "failure_reason": null,
+          "name": "csv_download",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "dataset_version",
+            "snapshot_name",
+            "test_manifest_sha256",
+            "symbol",
+            "timeframe",
+            "model",
+            "split",
+            "input_ts",
+            "target_ts",
+            "current_close",
+            "actual_close",
+            "predicted_close",
+            "run_id",
+            "seed"
+          ],
+          "expected": [
+            "dataset_version",
+            "snapshot_name",
+            "test_manifest_sha256",
+            "symbol",
+            "timeframe",
+            "model",
+            "split",
+            "input_ts",
+            "target_ts",
+            "current_close",
+            "actual_close",
+            "predicted_close",
+            "run_id",
+            "seed"
+          ],
+          "failure_reason": null,
+          "name": "prediction_schema",
+          "status": "pass"
+        },
+        {
+          "actual": 78,
+          "expected": 78,
+          "failure_reason": null,
+          "name": "prediction_rows",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "group_dataset_v1"
+          ],
+          "expected": "group_dataset_v1",
+          "failure_reason": null,
+          "name": "prediction_dataset_version",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "ohlcv_full_current"
+          ],
+          "expected": "ohlcv_full_current",
+          "failure_reason": null,
+          "name": "prediction_snapshot_name",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "62d82e13b48f337623235e20c2412d435395fef46fea5a24776ea895d1c8b828"
+          ],
+          "expected": "62d82e13b48f337623235e20c2412d435395fef46fea5a24776ea895d1c8b828",
+          "failure_reason": null,
+          "name": "prediction_test_manifest_sha256",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "ACB"
+          ],
+          "expected": "ACB",
+          "failure_reason": null,
+          "name": "prediction_symbol",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "1d"
+          ],
+          "expected": "1d",
+          "failure_reason": null,
+          "name": "prediction_timeframe",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "xgboost"
+          ],
+          "expected": "xgboost",
+          "failure_reason": null,
+          "name": "prediction_model",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "test"
+          ],
+          "expected": "test",
+          "failure_reason": null,
+          "name": "prediction_split",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "55ea7a8c7e3a49ed813ac6294fb26a80"
+          ],
+          "expected": "55ea7a8c7e3a49ed813ac6294fb26a80",
+          "failure_reason": null,
+          "name": "prediction_run_id",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            42
+          ],
+          "expected": 42,
+          "failure_reason": null,
+          "name": "prediction_seed",
+          "status": "pass"
+        },
+        {
+          "actual": "valid",
+          "expected": "strictly ordered unique horizon-one targets",
+          "failure_reason": null,
+          "name": "prediction_chronology",
+          "status": "pass"
+        },
+        {
+          "actual": "all finite",
+          "expected": "all finite",
+          "failure_reason": null,
+          "name": "prediction_finite",
+          "status": "pass"
+        },
+        {
+          "actual": "match",
+          "expected": "exact locked-loader row identity",
+          "failure_reason": null,
+          "name": "locked_manifest_rows",
+          "status": "pass"
+        },
+        {
+          "actual": {
+            "directional_accuracy": 0.48717948717948717,
+            "improvement_vs_naive_rmse_pct": -66.15119948075981,
+            "mae": 0.48262003678541876,
+            "mape_pct": 2.282851875973909,
+            "naive_directional_accuracy": 0.10256410256410256,
+            "naive_mae": 0.2669230769230771,
+            "naive_mape_pct": 1.2888783803605892,
+            "naive_rmse": 0.3902169022085419,
+            "rmse": 0.6483500635961559
+          },
+          "expected": "finite metrics with RMSE >= MAE",
+          "failure_reason": null,
+          "name": "metric_recomputation",
+          "status": "pass"
+        },
+        {
+          "actual": [
+            "dataset_version",
+            "snapshot_name",
+            "test_manifest_sha256",
+            "symbol",
+            "timeframe",
+            "model",
+            "split",
+            "n_samples",
+            "mae",
+            "rmse",
+            "mape_pct",
+            "directional_accuracy",
+            "naive_mae",
+            "naive_rmse",
+            "naive_mape_pct",
+            "naive_directional_accuracy",
+            "improvement_vs_naive_rmse_pct",
+            "run_id",
+            "seed",
+            "status"
+          ],
+          "expected": [
+            "dataset_version",
+            "snapshot_name",
+            "test_manifest_sha256",
+            "symbol",
+            "timeframe",
+            "model",
+            "split",
+            "n_samples",
+            "mae",
+            "rmse",
+            "mape_pct",
+            "directional_accuracy",
+            "naive_mae",
+            "naive_rmse",
+            "naive_mape_pct",
+            "naive_directional_accuracy",
+            "improvement_vs_naive_rmse_pct",
+            "run_id",
+            "seed",
+            "status"
+          ],
+          "failure_reason": null,
+          "name": "summary_schema",
+          "status": "pass"
+        },
+        {
+          "actual": "group_dataset_v1",
+          "expected": "group_dataset_v1",
+          "failure_reason": null,
+          "name": "summary_dataset_version",
+          "status": "pass"
+        },
+        {
+          "actual": "ohlcv_full_current",
+          "expected": "ohlcv_full_current",
+          "failure_reason": null,
+          "name": "summary_snapshot_name",
+          "status": "pass"
+        },
+        {
+          "actual": "62d82e13b48f337623235e20c2412d435395fef46fea5a24776ea895d1c8b828",
+          "expected": "62d82e13b48f337623235e20c2412d435395fef46fea5a24776ea895d1c8b828",
+          "failure_reason": null,
+          "name": "summary_test_manifest_sha256",
+          "status": "pass"
+        },
+        {
+          "actual": "ACB",
+          "expected": "ACB",
+          "failure_reason": null,
+          "name": "summary_symbol",
+          "status": "pass"
+        },
+        {
+          "actual": "1d",
+          "expected": "1d",
+          "failure_reason": null,
+          "name": "summary_timeframe",
+          "status": "pass"
+        },
+        {
+          "actual": "xgboost",
+          "expected": "xgboost",
+          "failure_reason": null,
+          "name": "summary_model",
+          "status": "pass"
+        },
+        {
+          "actual": "test",
+          "expected": "test",
+          "failure_reason": null,
+          "name": "summary_split",
+          "status": "pass"
+        },
+        {
+          "actual": 78,
+          "expected": 78,
+          "failure_reason": null,
+          "name": "summary_n_samples",
+          "status": "pass"
+        },
+        {
+          "actual": "55ea7a8c7e3a49ed813ac6294fb26a80",
+          "expected": "55ea7a8c7e3a49ed813ac6294fb26a80",
+          "failure_reason": null,
+          "name": "summary_run_id",
+          "status": "pass"
+        },
+        {
+          "actual": 42,
+          "expected": 42,
+          "failure_reason": null,
+          "name": "summary_seed",
+          "status": "pass"
+        },
+        {
+          "actual": "preliminary",
+          "expected": [
+            "invalid",
+            "preliminary",
+            "valid"
+          ],
+          "failure_reason": null,
+          "name": "summary_status",
+          "status": "pass"
+        },
+        {
+          "actual": "preliminary",
+          "expected": [
+            "preliminary",
+            "valid"
+          ],
+          "failure_reason": null,
+          "name": "summary_eligibility",
+          "status": "pass"
+        },
+        {
+          "actual": {
+            "directional_accuracy": 0.4871794871794871,
+            "improvement_vs_naive_rmse_pct": -66.15119948075979,
+            "mae": 0.482620036785419,
+            "mape_pct": 2.2828518759739103,
+            "naive_directional_accuracy": 0.1025641025641025,
+            "naive_mae": 0.2669230769230771,
+            "naive_mape_pct": 1.2888783803605892,
+            "naive_rmse": 0.3902169022085419,
+            "rmse": 0.6483500635961558
+          },
+          "expected": {
+            "directional_accuracy": 0.48717948717948717,
+            "improvement_vs_naive_rmse_pct": -66.15119948075981,
+            "mae": 0.48262003678541876,
+            "mape_pct": 2.282851875973909,
+            "naive_directional_accuracy": 0.10256410256410256,
+            "naive_mae": 0.2669230769230771,
+            "naive_mape_pct": 1.2888783803605892,
+            "naive_rmse": 0.3902169022085419,
+            "rmse": 0.6483500635961559
+          },
+          "failure_reason": null,
+          "name": "summary_metrics",
+          "status": "pass"
+        },
+        {
+          "actual": {
+            "directional_accuracy": 0.48717948717948717,
+            "improvement_vs_naive_rmse_pct": -66.15119948075979,
+            "mae": 0.482620036785419,
+            "mape_pct": 2.2828518759739103,
+            "naive_directional_accuracy": 0.10256410256410256,
+            "naive_mae": 0.2669230769230771,
+            "naive_mape_pct": 1.2888783803605892,
+            "naive_rmse": 0.3902169022085419,
+            "rmse": 0.6483500635961558
+          },
+          "expected": {
+            "directional_accuracy": 0.48717948717948717,
+            "improvement_vs_naive_rmse_pct": -66.15119948075981,
+            "mae": 0.48262003678541876,
+            "mape_pct": 2.282851875973909,
+            "naive_directional_accuracy": 0.10256410256410256,
+            "naive_mae": 0.2669230769230771,
+            "naive_mape_pct": 1.2888783803605892,
+            "naive_rmse": 0.3902169022085419,
+            "rmse": 0.6483500635961559
+          },
+          "failure_reason": null,
+          "name": "mlflow_metrics",
+          "status": "pass"
+        },
+        {
+          "actual": {
+            "features": [
+              "returns",
+              "volatility",
+              "rsi",
+              "macd",
+              "macd_signal",
+              "close_lag_1",
+              "close_lag_3",
+              "close_lag_5",
+              "close_lag_10",
+              "close_lag_20",
+              "rolling_mean_5",
+              "rolling_mean_10",
+              "rolling_mean_20",
+              "rolling_std_5",
+              "rolling_std_20",
+              "rolling_min_10",
+              "rolling_max_10",
+              "bollinger_band_width_20",
+              "atr_14"
+            ],
+            "finite_prediction": true
+          },
+          "expected": {
+            "features": [
+              "returns",
+              "volatility",
+              "rsi",
+              "macd",
+              "macd_signal",
+              "close_lag_1",
+              "close_lag_3",
+              "close_lag_5",
+              "close_lag_10",
+              "close_lag_20",
+              "rolling_mean_5",
+              "rolling_mean_10",
+              "rolling_mean_20",
+              "rolling_std_5",
+              "rolling_std_20",
+              "rolling_min_10",
+              "rolling_max_10",
+              "bollinger_band_width_20",
+              "atr_14"
+            ],
+            "finite_prediction": true
+          },
+          "failure_reason": null,
+          "name": "model_artifact_reload",
+          "status": "pass"
+        },
+        {
+          "actual": {
+            "naive_directional_accuracy": 0.10256410256410256,
+            "naive_mae": 0.2669230769230771,
+            "naive_mape_pct": 1.2888783803605892,
+            "naive_rmse": 0.3902169022085419
+          },
+          "expected": {
+            "naive_directional_accuracy": 0.10256410256410256,
+            "naive_mae": 0.2669230769230771,
+            "naive_mape_pct": 1.2888783803605892,
+            "naive_rmse": 0.3902169022085419
+          },
+          "failure_reason": null,
+          "name": "naive_baseline_identity",
+          "status": "pass"
+        }
+      ],
+      "failure_reason": [],
+      "mlflow_metrics": {
+        "directional_accuracy": 0.48717948717948717,
+        "improvement_vs_naive_rmse_pct": -66.15119948075979,
+        "mae": 0.482620036785419,
+        "mape_pct": 2.2828518759739103,
+        "naive_directional_accuracy": 0.10256410256410256,
+        "naive_mae": 0.2669230769230771,
+        "naive_mape_pct": 1.2888783803605892,
+        "naive_rmse": 0.3902169022085419,
+        "rmse": 0.6483500635961558
+      },
+      "model": "xgboost",
+      "params": {
+        "best_iteration": "12",
+        "colsample_bytree": "0.6624074561769746",
+        "dataset_version": "group_dataset_v1",
+        "early_stopping_rounds": "50",
+        "enable_categorical": "False",
+        "feature_list": "returns,volatility,rsi,macd,macd_signal,close_lag_1,close_lag_3,close_lag_5,close_lag_10,close_lag_20,rolling_mean_5,rolling_mean_10,rolling_mean_20,rolling_std_5,rolling_std_20,rolling_min_10,rolling_max_10,bollinger_band_width_20,atr_14",
+        "horizon": "1",
+        "learning_rate": "0.08960785365368121",
+        "max_depth": "9",
+        "model": "xgboost",
+        "n_estimators": "106",
+        "n_jobs": "1",
+        "n_trials": "1",
+        "objective": "reg:squarederror",
+        "random_state": "42",
+        "reg_alpha": "0.000602521573620386",
+        "reg_lambda": "0.00019517224641449495",
+        "seed": "42",
+        "snapshot_name": "ohlcv_full_current",
+        "subsample": "0.8394633936788146",
+        "symbol": "ACB",
+        "target": "next_close",
+        "test_manifest_sha256": "62d82e13b48f337623235e20c2412d435395fef46fea5a24776ea895d1c8b828",
+        "timeframe": "1d"
+      },
+      "recomputed_metrics": {
+        "directional_accuracy": 0.48717948717948717,
+        "improvement_vs_naive_rmse_pct": -66.15119948075981,
+        "mae": 0.48262003678541876,
+        "mape_pct": 2.282851875973909,
+        "naive_directional_accuracy": 0.10256410256410256,
+        "naive_mae": 0.2669230769230771,
+        "naive_mape_pct": 1.2888783803605892,
+        "naive_rmse": 0.3902169022085419,
+        "rmse": 0.6483500635961559
+      },
+      "run_id": "55ea7a8c7e3a49ed813ac6294fb26a80",
+      "source_commit": "e826aea5a06f4a2adb57f7aa3967cf03f3ce5471",
+      "source_summary_status": "preliminary",
+      "status": "valid"
+    }
+  },
+  "ranking": [
+    {
+      "directional_accuracy": 0.5128205128205128,
+      "improvement_vs_naive_rmse_pct": 0.5163771224311596,
+      "mae": 0.27234869637307557,
+      "mape_pct": 1.3135850175231933,
+      "model": "arima",
+      "naive_directional_accuracy": 0.10256410256410256,
+      "naive_mae": 0.2669230769230771,
+      "naive_mape_pct": 1.2888783803605892,
+      "naive_rmse": 0.3902169022085419,
+      "rank": 1,
+      "rmse": 0.3882019113976774
+    },
+    {
+      "directional_accuracy": 0.38461538461538464,
+      "improvement_vs_naive_rmse_pct": -63.20026293698421,
+      "mae": 0.5256917774782239,
+      "mape_pct": 2.5733422799615013,
+      "model": "random_forest",
+      "naive_directional_accuracy": 0.10256410256410256,
+      "naive_mae": 0.2669230769230771,
+      "naive_mape_pct": 1.2888783803605892,
+      "naive_rmse": 0.3902169022085419,
+      "rank": 2,
+      "rmse": 0.6368350104288949
+    },
+    {
+      "directional_accuracy": 0.48717948717948717,
+      "improvement_vs_naive_rmse_pct": -66.15119948075981,
+      "mae": 0.48262003678541876,
+      "mape_pct": 2.282851875973909,
+      "model": "xgboost",
+      "naive_directional_accuracy": 0.10256410256410256,
+      "naive_mae": 0.2669230769230771,
+      "naive_mape_pct": 1.2888783803605892,
+      "naive_rmse": 0.3902169022085419,
+      "rank": 3,
+      "rmse": 0.6483500635961559
+    },
+    {
+      "directional_accuracy": 0.47435897435897434,
+      "improvement_vs_naive_rmse_pct": -88.62573220578025,
+      "mae": 0.5393094254762704,
+      "mape_pct": 2.534783277033477,
+      "model": "gru",
+      "naive_directional_accuracy": 0.10256410256410256,
+      "naive_mae": 0.2669230769230771,
+      "naive_mape_pct": 1.2888783803605892,
+      "naive_rmse": 0.3902169022085419,
+      "rank": 4,
+      "rmse": 0.7360494889815756
+    }
+  ],
+  "ranking_rule": {
+    "deterministic_fallback": "model_name_asc",
+    "primary": "rmse_asc",
+    "secondary": "mae_asc",
+    "tertiary": "directional_accuracy_desc"
+  },
+  "run_ids": {
+    "arima": "f1ef301caa064c858da753982f1564dc",
+    "gru": "65f56eab440e4fa9a5192bfaddbcc96e",
+    "random_forest": "db37627439134d56a250c8b898969d77",
+    "xgboost": "55ea7a8c7e3a49ed813ac6294fb26a80"
+  },
+  "source_commits": {
+    "arima": "ab1cf9af355211192c923c55aa042ff0413fdf6a",
+    "gru": "8a0d2dd3ec7a749aec2fedd8516e835390a9243d",
+    "random_forest": "e826aea5a06f4a2adb57f7aa3967cf03f3ce5471",
+    "xgboost": "e826aea5a06f4a2adb57f7aa3967cf03f3ce5471"
+  },
+  "status": "valid"
+}

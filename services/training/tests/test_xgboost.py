@@ -1,4 +1,5 @@
 import csv
+import json
 from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import Any, cast
@@ -586,3 +587,78 @@ def test_scaler_prediction_and_summary_are_logged_as_artifacts(
         ("prediction.csv", "predictions"),
         ("summary.csv", "metrics"),
     ]
+
+
+def test_explainability_payload_structure(
+    monkeypatch: pytest.MonkeyPatch,
+    xgboost_data: tuple[pd.DataFrame, pd.Series, pd.DataFrame, pd.Series],
+) -> None:
+    class _FakeTreeExplainer:
+        def __init__(self, model: object) -> None:
+            self.model = model
+
+        def shap_values(self, values: pd.DataFrame) -> np.ndarray:
+            return np.tile([[1.0, -3.0]], (len(values), 1))
+
+    monkeypatch.setattr(xgboost_model_module.shap, "TreeExplainer", _FakeTreeExplainer)
+    X_train, y_train, _, _ = xgboost_data
+    model = XGBoostModelWrapper(params=_xgboost_params(n_estimators=8))
+    model.fit(X_train, y_train)
+
+    payload = train_xgboost.build_explainability_payload(model, X_train)
+
+    assert payload["method"] == "shap_tree_explainer"
+    assert payload["model"] == train_xgboost.MODEL_NAME
+    assert payload["feature_list"] == ["signal", "trend"]
+    assert payload["n_samples"] == len(X_train)
+    assert [item["feature"] for item in payload["features"]] == ["signal", "trend"]
+    assert payload["features"][0]["mean_abs_shap"] == pytest.approx(1.0)
+    assert payload["features"][1]["mean_abs_shap"] == pytest.approx(3.0)
+    assert all(
+        isinstance(item["importance"], float) and item["importance"] >= 0.0
+        for item in payload["features"]
+    )
+    # Payload must be JSON-safe because it is logged via mlflow.log_dict.
+    json.dumps(payload)
+
+
+def test_explainability_artifact_is_logged(
+    monkeypatch: pytest.MonkeyPatch,
+    xgboost_data: tuple[pd.DataFrame, pd.Series, pd.DataFrame, pd.Series],
+) -> None:
+    logged: dict[str, dict[str, object]] = {}
+
+    class _RunContext(AbstractContextManager[object]):
+        def __enter__(self) -> object:
+            return object()
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+    def fake_start_run(*, run_id: str) -> _RunContext:
+        assert run_id == "run-explain"
+        return _RunContext()
+
+    def fake_log_dict(payload: dict[str, object], artifact_file: str) -> None:
+        logged[artifact_file] = payload
+
+    class _FakeTreeExplainer:
+        def __init__(self, model: object) -> None:
+            self.model = model
+
+        def shap_values(self, values: pd.DataFrame) -> np.ndarray:
+            return np.zeros((len(values), values.shape[1]), dtype=float)
+
+    monkeypatch.setattr(xgboost_model_module.shap, "TreeExplainer", _FakeTreeExplainer)
+    monkeypatch.setattr(train_xgboost.mlflow, "start_run", fake_start_run)
+    monkeypatch.setattr(train_xgboost.mlflow, "log_dict", fake_log_dict)
+
+    X_train, y_train, _, _ = xgboost_data
+    model = XGBoostModelWrapper(params=_xgboost_params(n_estimators=8))
+    model.fit(X_train, y_train)
+
+    train_xgboost._log_explainability_artifact("run-explain", model, X_train)
+
+    assert train_xgboost.EXPLAIN_ARTIFACT_NAME in logged
+    stored = logged[train_xgboost.EXPLAIN_ARTIFACT_NAME]
+    assert stored["feature_list"] == ["signal", "trend"]
